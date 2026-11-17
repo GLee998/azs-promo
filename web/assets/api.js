@@ -1,7 +1,7 @@
 // Адрес API. Если сайт открыт с GitHub Pages — обращаемся к серверу на Render,
 // иначе (локально или на самом Render) API живёт на том же адресе.
 const API_BASE = location.hostname.endsWith('github.io')
-  ? 'https://azs-promo-api.onrender.com'
+  ? 'https://azs-promo-web.onrender.com'
   : '';
 
 async function api(path, { method = 'GET', json, form, token, raw } = {}) {

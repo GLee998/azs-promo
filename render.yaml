@@ -2,7 +2,7 @@
 # Развернуть: https://render.com/deploy?repo=https://github.com/GLee998/azs-promo
 services:
   - type: web
-    name: azs-promo-api
+    name: azs-promo-web
     region: virginia
     runtime: python
     plan: free
