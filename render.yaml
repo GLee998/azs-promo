@@ -3,6 +3,7 @@
 services:
   - type: web
     name: azs-promo-api
+    region: virginia
     runtime: python
     plan: free
     rootDir: backend
@@ -28,4 +29,5 @@ services:
 
 databases:
   - name: azs-promo-db
+    region: virginia
     plan: free
