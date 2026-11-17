@@ -1,7 +1,8 @@
 // Мобильная форма регистрации чека: клиент заполняет её на кассе до выдачи машинки.
 
 const $ = id => document.getElementById(id);
-const state = { photo: null, fiscal: null };
+const state = { photo: null, fiscal: null, qr: null, ticket: null };
+const t = (key, vars) => I18n.t(key, vars);
 const STATION = new URLSearchParams(location.search).get('azs') || '';
 const TICKET_KEY = 'karavan_ticket';
 let pollTimer = null;
@@ -80,8 +81,17 @@ function decodeQr(img) {
   return null;
 }
 
+// Подсказка под фото: храним ключ, чтобы перевести её при смене языка.
+function setQr(key) {
+  state.qr = key;
+  const status = $('qrStatus');
+  status.className = 'qr-status' + ({ qrOk: ' ok', qrNo: ' warn', fileBad: ' warn' }[key] || '');
+  status.textContent = t(key, state.fiscal || {});
+  show(status);
+}
+
 if (STATION) {
-  $('stationChip').textContent = 'АЗС №' + STATION;
+  $('stationChip').textContent = t('station', { n: STATION });
   show($('stationChip'));
 }
 
@@ -89,10 +99,7 @@ $('photo').addEventListener('change', async e => {
   const file = e.target.files[0];
   if (!file) return;
   setError('photoErr');
-  const status = $('qrStatus');
-  status.className = 'qr-status';
-  status.textContent = 'Обрабатываем фото…';
-  show(status);
+  setQr('processing');
   try {
     const img = await loadImage(file);
     // Сжимаем перед отправкой: на мобильном интернете это заметно быстрее.
@@ -103,21 +110,14 @@ $('photo').addEventListener('change', async e => {
     show($('camIcon'), false);
     show($('uploadHint'), false);
     $('uploadBox').classList.add('has-photo');
-    $('uploadText').textContent = 'Заменить фото';
+    $('uploadText').textContent = t('replacePhoto');
 
     state.fiscal = decodeQr(img);
-    if (state.fiscal) {
-      status.className = 'qr-status ok';
-      status.textContent = `QR-код чека распознан: ФД № ${state.fiscal.fd}, сумма ${state.fiscal.sum} сом`;
-    } else {
-      status.className = 'qr-status warn';
-      status.textContent = 'QR-код не распознан. Можно отправить так: кассир сверит чек вручную.';
-    }
+    setQr(state.fiscal ? 'qrOk' : 'qrNo');
     race('update');
   } catch {
     state.photo = null;
-    status.className = 'qr-status warn';
-    status.textContent = 'Не удалось открыть файл. Попробуйте другое фото.';
+    setQr('fileBad');
   }
 });
 
@@ -135,14 +135,14 @@ $('form').addEventListener('submit', async e => {
   e.preventDefault();
   const phone = normalizePhone($('phone').value);
   const consent = $('consent').checked;
-  setError('phoneErr', phone ? '' : 'Введите номер в формате +996 XXX XXX XXX');
-  setError('photoErr', state.photo ? '' : 'Загрузите фото чека');
-  setError('consentErr', consent ? '' : 'Нужно принять правила акции и согласие на обработку данных');
+  setError('phoneErr', phone ? '' : t('phoneErr'));
+  setError('photoErr', state.photo ? '' : t('photoErr'));
+  setError('consentErr', consent ? '' : t('consentErr'));
   setError('submitErr');
   if (!phone || !state.photo || !consent) return;
 
   $('submit').disabled = true;
-  $('submit').textContent = 'Проверяем номер и чек…';
+  $('submit').textContent = t('checking');
   try {
     const fd = new FormData();
     fd.append('phone', phone);
@@ -160,10 +160,10 @@ $('form').addEventListener('submit', async e => {
     saveTicket(r.token);
     openTicket(r);
   } catch (err) {
-    setError('submitErr', err.message);
+    setError('submitErr', I18n.server(err.message));
   } finally {
     $('submit').disabled = false;
-    $('submit').textContent = 'Зарегистрировать чек';
+    $('submit').textContent = t('submit');
   }
 });
 
@@ -193,12 +193,13 @@ function openTicket(r) {
 }
 
 function renderStatus(r, celebrate) {
+  state.ticket = r;
   show($('stWaiting'), r.status === 'waiting');
   show($('stIssued'), r.status === 'issued' || r.status === 'disqualified');
   show($('stCancelled'), r.status === 'cancelled');
-  if (r.entry) $('entryNumber').textContent = 'Номер участника ' + r.entry;
+  if (r.entry) $('entryNumber').textContent = t('entry', { n: r.entry });
   show($('entryNumber'), !!r.entry);
-  if (r.status === 'cancelled') $('cancelReason').textContent = r.reason || '';
+  if (r.status === 'cancelled') $('cancelReason').textContent = I18n.server(r.reason || '');
   if (r.status !== 'waiting') {
     clearInterval(pollTimer);
     if (r.status === 'issued' && celebrate) race('finish');
@@ -217,13 +218,13 @@ async function poll() {
 $('again').addEventListener('click', () => {
   forgetTicket();
   $('form').reset();
-  Object.assign(state, { photo: null, fiscal: null });
+  Object.assign(state, { photo: null, fiscal: null, qr: null, ticket: null });
   show($('preview'), false);
   show($('qrStatus'), false);
   show($('camIcon'));
   show($('uploadHint'));
   $('uploadBox').classList.remove('has-photo');
-  $('uploadText').textContent = 'Сфотографировать чек';
+  $('uploadText').textContent = t('takePhoto');
   show($('ticket'), false);
   show($('formCard'));
   race('reset');
@@ -239,6 +240,19 @@ $('again').addEventListener('click', () => {
     else forgetTicket();
   } catch { forgetTicket(); }
 })();
+
+// Смена языка: переводим всё, что form.js подставил сам. Ошибки проверки скрываем,
+// они появятся снова на нужном языке при следующей отправке.
+function applyLang() {
+  if (STATION) $('stationChip').textContent = t('station', { n: STATION });
+  $('uploadText').textContent = t(state.photo ? 'replacePhoto' : 'takePhoto');
+  if (state.qr) setQr(state.qr);
+  if (!$('submit').disabled) $('submit').textContent = t('submit');
+  ['phoneErr', 'photoErr', 'consentErr', 'submitErr'].forEach(id => setError(id));
+  if (state.ticket) renderStatus(state.ticket, false);
+}
+document.addEventListener('langchange', applyLang);
+applyLang();
 
 // Машинка на дороге-прогрессе (fx.js). Без анимаций форма работает так же.
 function race(action) {

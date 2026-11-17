@@ -17,11 +17,12 @@ services:
         fromDatabase:
           name: azs-promo-db
           property: connectionString
-      # Пароли реестра и кассы генерирует Render: Dashboard → azs-promo-web → Environment.
+      # Временные пароли тестового стенда. Перед запуском акции заменить на сложные
+      # (generateValue: true или вручную в Dashboard → azs-promo-web → Environment).
       - key: ADMIN_PASSWORD
-        generateValue: true
+        value: "0000"
       - key: CASHIER_PASSWORD
-        generateValue: true
+        value: "0000"
       - key: SERVE_WEB
         value: "false"
       # Подтверждение номера кодом выключено.

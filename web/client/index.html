@@ -18,18 +18,24 @@
     <div class="hero-inner">
       <div class="brandline">
         <img class="logo" src="shared/img/logo-white.svg" alt="Partner Neft">
-        <span class="demo-pill">Тестовая версия</span>
+        <div class="brand-right">
+          <div class="lang-switch" role="group" aria-label="Язык / Тил">
+            <button type="button" data-lang="ru" aria-pressed="true">Рус</button>
+            <button type="button" data-lang="ky" aria-pressed="false">Кыр</button>
+          </div>
+          <span class="demo-pill" data-i18n="demo">Тестовая версия</span>
+        </div>
       </div>
 
       <div class="hero-text">
         <p class="partners reveal">Partner Neft <span class="x">x</span> Coca Cola</p>
-        <h1 class="reveal">Караван Новогодних Чудес</h1>
-        <p class="lead reveal">2 френч-дога + 2 Coca Cola = машинка и шанс на поездку!</p>
-        <a class="btn go reveal" href="#register">Зарегистрировать чек</a>
+        <h1 class="reveal" data-i18n="h1">Караван Новогодних Чудес</h1>
+        <p class="lead reveal" data-i18n="lead">2 френч-дога + 2 Coca Cola = машинка и шанс на поездку!</p>
+        <a class="btn go reveal" href="#register" data-i18n="cta">Зарегистрировать чек</a>
       </div>
 
       <div class="hero-art">
-        <div class="equation" aria-label="2 френч-дога плюс 2 Coca Cola равно машинка">
+        <div class="equation" data-i18n-aria="equation" aria-label="2 френч-дога плюс 2 Coca Cola равно машинка">
           <div class="stack">
             <img class="dog piece" src="shared/img/frenchdog.svg" alt="">
             <img class="dog piece" src="shared/img/frenchdog.svg" alt="">
@@ -49,8 +55,8 @@
   </header>
 
   <main class="wrap" id="register">
-    <h2 class="section-title">Регистрация чека <span class="station-chip hidden" id="stationChip"></span></h2>
-    <p class="section-sub">Заполните до выдачи машинки, затем покажите экран кассиру.</p>
+    <h2 class="section-title"><span data-i18n="regTitle">Регистрация чека</span> <span class="station-chip hidden" id="stationChip"></span></h2>
+    <p class="section-sub" data-i18n="regSub">Заполните до выдачи машинки, затем покажите экран кассиру.</p>
 
     <div class="road-wrap" id="roadWrap" aria-hidden="true">
       <div class="road">
@@ -58,32 +64,32 @@
         <div class="racer" id="racer"><img src="shared/img/car.svg" alt=""></div>
       </div>
       <ol class="milestones" id="milestones">
-        <li><span class="dot">1</span>Телефон</li>
-        <li><span class="dot">2</span>Чек</li>
-        <li><span class="dot">3</span>Согласие</li>
-        <li><span class="dot">✓</span>Касса</li>
+        <li><span class="dot">1</span><span data-i18n="msPhone">Телефон</span></li>
+        <li><span class="dot">2</span><span data-i18n="msReceipt">Чек</span></li>
+        <li><span class="dot">3</span><span data-i18n="msConsent">Согласие</span></li>
+        <li><span class="dot">✓</span><span data-i18n="msKassa">Касса</span></li>
       </ol>
     </div>
 
     <section class="panel" id="formCard">
       <form id="form" novalidate>
         <div class="field">
-          <div class="field-head"><span class="n">1</span><h3>Номер телефона</h3></div>
-          <label for="phone" class="hint">Один номер телефона участвует в акции один раз.</label>
+          <div class="field-head"><span class="n">1</span><h3 data-i18n="phoneTitle">Номер телефона</h3></div>
+          <label for="phone" class="hint" data-i18n="phoneHint">Один номер телефона участвует в акции один раз.</label>
           <input id="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+996 700 123 456" required>
           <div class="error hidden" id="phoneErr" role="alert"></div>
 
         </div>
 
         <div class="field">
-          <div class="field-head"><span class="n">2</span><h3>Фото чека</h3></div>
+          <div class="field-head"><span class="n">2</span><h3 data-i18n="photoTitle">Фото чека</h3></div>
           <label class="upload" id="uploadBox">
-            <img id="preview" class="hidden" alt="Фото чека">
+            <img id="preview" class="hidden" alt="Фото чека" data-i18n-alt="photoAlt">
             <span class="cam" id="camIcon" aria-hidden="true">
               <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#F07DB8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
             </span>
             <b id="uploadText">Сфотографировать чек</b>
-            <span class="hint" id="uploadHint">Целиком, чтобы был виден QR-код внизу чека</span>
+            <span class="hint" id="uploadHint" data-i18n="photoHint">Целиком, чтобы был виден QR-код внизу чека</span>
             <input id="photo" type="file" accept="image/*" capture="environment">
           </label>
           <div class="qr-status hidden" id="qrStatus" role="status"></div>
@@ -91,15 +97,15 @@
         </div>
 
         <div class="field">
-          <div class="field-head"><span class="n">3</span><h3>Согласие</h3></div>
+          <div class="field-head"><span class="n">3</span><h3 data-i18n="consentTitle">Согласие</h3></div>
           <label class="consent">
             <input id="consent" type="checkbox">
-            <span>Принимаю <a href="rules.html" target="_blank">правила акции</a> и даю согласие на обработку персональных данных в соответствии с <a href="privacy.html" target="_blank">политикой обработки персональных данных</a>.</span>
+            <span data-i18n-html="consent">Принимаю <a href="rules.html" target="_blank">правила акции</a> и даю согласие на обработку персональных данных в соответствии с <a href="privacy.html" target="_blank">политикой обработки персональных данных</a>.</span>
           </label>
           <div class="error hidden" id="consentErr" role="alert"></div>
         </div>
 
-        <button class="btn" id="submit" type="submit">Зарегистрировать чек</button>
+        <button class="btn" id="submit" type="submit" data-i18n="cta">Зарегистрировать чек</button>
         <div class="error box hidden" id="submitErr" role="alert"></div>
       </form>
     </section>
@@ -108,41 +114,41 @@
       <img class="finish-car" src="shared/img/car.svg" alt="">
 
       <div id="stWaiting">
-        <h2>Чек принят</h2>
-        <p>Номер и чек проверены. Покажите этот экран кассиру, чтобы получить машинку.</p>
-        <div class="plate" aria-label="Код заявки">
+        <h2 data-i18n="wTitle">Чек принят</h2>
+        <p data-i18n="wText">Номер и чек проверены. Покажите этот экран кассиру, чтобы получить машинку.</p>
+        <div class="plate" data-i18n-aria="plate" aria-label="Код заявки">
           <span class="region">01</span>
           <span class="num" data-code></span>
           <span class="reg"><i></i><span>KG</span></span>
         </div>
-        <div><span class="waiting-line"><span class="pulse"></span>Ждём, когда кассир отметит выдачу</span></div>
+        <div><span class="waiting-line"><span class="pulse"></span><span data-i18n="wWait">Ждём, когда кассир отметит выдачу</span></span></div>
       </div>
 
       <div id="stIssued" class="hidden">
-        <h2>Машинка ваша!</h2>
-        <p>Вы участвуете в розыгрыше 8 поездок на новогоднем караване. Сохраните номер участника.</p>
+        <h2 data-i18n="iTitle">Машинка ваша!</h2>
+        <p data-i18n="iText">Вы участвуете в розыгрыше 8 поездок на новогоднем караване. Сохраните номер участника.</p>
         <span class="entry-number" id="entryNumber"></span>
       </div>
 
       <div id="stCancelled" class="hidden">
-        <h2>Заявка отменена</h2>
+        <h2 data-i18n="cTitle">Заявка отменена</h2>
         <p id="cancelReason"></p>
-        <button class="btn" id="again" type="button">Зарегистрировать чек заново</button>
+        <button class="btn" id="again" type="button" data-i18n="again">Зарегистрировать чек заново</button>
       </div>
     </section>
 
-    <h2 class="section-title">Как участвовать в акции «Караван новогодних чудес»</h2>
+    <h2 class="section-title" data-i18n="howTitle">Как участвовать в акции «Караван новогодних чудес»</h2>
     <ol class="how">
-      <li><div><b>Купите комбо</b><span>Комбо «Караван новогодних чудес»: 2 френч-дога и 2 колы 0,5 л.</span></div></li>
-      <li><div><b>Зарегистрируйте чек</b><span>Отсканируйте QR-код на кассе и зарегистрируйте чек по номеру телефона. Один чек можно зарегистрировать только один раз.</span></div></li>
-      <li><div><b>Получите брендированную машинку Coca-Cola</b><span>Машинка выдаётся один раз за всю акцию на один номер телефона.</span></div></li>
-      <li><div><b>Участвуйте в розыгрыше</b><span>Один номер телефона даёт один шанс выиграть поездку на новогоднем караване. Всего разыгрывается 8 поездок, по одной на каждого победителя.</span></div></li>
+      <li><div><b data-i18n="how1b">Купите комбо</b><span data-i18n="how1">Комбо «Караван новогодних чудес»: 2 френч-дога и 2 колы 0,5 л.</span></div></li>
+      <li><div><b data-i18n="how2b">Зарегистрируйте чек</b><span data-i18n="how2">Отсканируйте QR-код на кассе и зарегистрируйте чек по номеру телефона. Один чек можно зарегистрировать только один раз.</span></div></li>
+      <li><div><b data-i18n="how3b">Получите брендированную машинку Coca-Cola</b><span data-i18n="how3">Машинка выдаётся один раз за всю акцию на один номер телефона.</span></div></li>
+      <li><div><b data-i18n="how4b">Участвуйте в розыгрыше</b><span data-i18n="how4">Один номер телефона даёт один шанс выиграть поездку на новогоднем караване. Всего разыгрывается 8 поездок, по одной на каждого победителя.</span></div></li>
     </ol>
   </main>
 
   <footer class="site-footer">
-    <a href="rules.html">Правила акции</a>
-    <a href="privacy.html">Политика обработки персональных данных</a>
+    <a href="rules.html" data-i18n="footRules">Правила акции</a>
+    <a href="privacy.html" data-i18n="footPrivacy">Политика обработки персональных данных</a>
   </footer>
 
   <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
@@ -150,6 +156,7 @@
   <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
   <script src="shared/config.js"></script>
   <script src="shared/api.js"></script>
+  <script src="i18n.js"></script>
   <script src="form.js"></script>
   <script src="fx.js"></script>
 </body>
