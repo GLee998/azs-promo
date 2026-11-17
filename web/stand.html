@@ -4,20 +4,39 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Табличка для стойки</title>
+  <link rel="icon" href="img/car.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=Russo+One&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="assets/style.css">
 </head>
-<body>
+<body class="poster-page">
   <main class="poster">
-    <div class="card">
-      <h1>Купили комбо?<br>Участвуйте в розыгрыше!</h1>
-      <p>2 Coca-Cola + 2 френч-дога. Отсканируйте QR-код, укажите телефон и сфотографируйте чек.</p>
+    <div class="poster-top hero">
+      <h1>Комбо с&nbsp;машинкой</h1>
+      <p>Купите 2 Coca-Cola и 2 френч-дога, получите машинку и участвуйте в розыгрыше призов</p>
+      <div class="equation" aria-label="2 Coca-Cola плюс 2 френч-дога равно машинка">
+        <div class="pair"><img class="cup" src="img/cup.svg" alt=""><img class="cup" src="img/cup.svg" alt=""></div>
+        <span class="op">+</span>
+        <div class="stack"><img class="dog" src="img/frenchdog.svg" alt=""><img class="dog" src="img/frenchdog.svg" alt=""></div>
+        <span class="op">=</span>
+        <img class="car" src="img/car.svg" alt="">
+      </div>
+      <div class="hero-road" aria-hidden="true"></div>
+    </div>
+
+    <div class="poster-body">
+      <p class="scan">Отсканируйте и&nbsp;зарегистрируйте чек</p>
       <div id="qr"></div>
       <div class="url" id="url"></div>
-      <div class="big-warn">Зарегистрируйте свой чек сразу после покупки</div>
-      <p class="hint">Один чек регистрируется один раз. Сохраните чек до окончания розыгрыша.</p>
+      <div class="hazard">Зарегистрируйте свой чек сразу после покупки</div>
+      <p class="small">Один чек регистрируется один раз. Сохраните чек до окончания розыгрыша.</p>
     </div>
-    <button class="btn no-print" onclick="print()">Распечатать</button>
   </main>
+
+  <div class="print-bar no-print">
+    <button class="btn" onclick="print()">Распечатать табличку</button>
+  </div>
 
   <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
   <script>
@@ -25,7 +44,7 @@
     const qr = qrcode(0, 'M');
     qr.addData(formUrl);
     qr.make();
-    document.getElementById('qr').innerHTML = qr.createSvgTag({ cellSize: 7, margin: 2, scalable: false });
+    document.getElementById('qr').innerHTML = qr.createSvgTag({ cellSize: 7, margin: 0, scalable: false });
     document.getElementById('url').textContent = formUrl;
   </script>
 </body>

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 52" role="img" aria-label="Финиш">
+  <rect x="3" y="2" width="3" height="50" rx="1.5" fill="#C9CDD3"/>
+  <defs><pattern id="c" width="10" height="10" patternUnits="userSpaceOnUse"><rect width="10" height="10" fill="#fff"/><rect width="5" height="5" fill="#2E3136"/><rect x="5" y="5" width="5" height="5" fill="#2E3136"/></pattern></defs>
+  <path d="M6 4 Q20 0 38 6 L38 26 Q22 20 6 25 Z" fill="url(#c)" stroke="#2E3136" stroke-width="1.5"/>
+</svg>

@@ -5,19 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
   <title>Тестовые чеки</title>
+  <link rel="icon" href="img/car.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=Russo+One&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="assets/style.css">
-  <style>
-    .receipt { font-family: ui-monospace, monospace; font-size: 13px; background: #fff; border: 1px dashed #999;
-      padding: 16px; max-width: 300px; margin: 0 auto; }
-    .receipt .stamp { color: var(--bad); font-weight: 700; text-align: center; border: 2px solid var(--bad);
-      padding: 4px; margin-bottom: 8px; }
-    .receipt .line { display: flex; justify-content: space-between; }
-    .receipt #rqr { text-align: center; margin-top: 10px; }
-    .receipt #rqr svg { display: inline-block; }
-  </style>
 </head>
 <body>
-  <div class="topbar"><h1>Тестовые чеки для демо</h1><a class="btn small" href="./">К форме</a></div>
+  <div class="topbar"><h1><img src="img/car.svg" alt="">Тестовые чеки</h1><a class="btn small" href="./">К форме</a></div>
   <main class="wrap wide" style="max-width:720px">
     <p class="notice">Страница для демонстрации без настоящей кассы. Она создаёт образец с QR-кодом в формате кассового чека
       и выгрузки «продажи» и «выдачи» для сверки в реестре. Это не фискальный документ.</p>
@@ -56,10 +51,10 @@
     try { receipts = JSON.parse(localStorage.getItem(KEY)) || []; } catch {}
     const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(receipts)); } catch {} };
     const digits = n => Array.from({ length: n }, (_, i) => (i === 0 ? 1 + Math.floor(Math.random() * 9) : Math.floor(Math.random() * 10))).join('');
-    const PRICE = 425;
+    const PRICE = 450;
 
     function qrString(r) {
-      return `t=${r.t}&s=${r.sum}&fn=${r.fn}&i=${r.fd}&fp=${r.fp}&n=1`;
+      return `https://tax.salyk.kg/client/api/v1/ticket?date=${r.t}&type=3&operation_type=1&fn_number=${r.fn}&fd_number=${r.fd}&fm=${r.fp}&sum=${r.sum}`;
     }
 
     function renderReceipt(r) {
@@ -69,9 +64,9 @@
       $('receipt').innerHTML = `
         <div class="stamp">ТЕСТОВЫЙ ОБРАЗЕЦ</div>
         <div style="text-align:center">АЗС · ДЕМО<br>Кассовый чек · Приход</div><hr>
-        <div class="line"><span>Комбо Coca-Cola × ${r.qty}</span><span>${r.sum}</span></div>
-        <div class="line"><b>ИТОГ</b><b>${r.sum}</b></div><hr>
-        <div>ФН ${r.fn}</div><div>ФД ${r.fd}</div><div>ФП ${r.fp}</div>
+        <div class="line"><span>Комбо Coca-Cola × ${r.qty}</span><span>${r.sum} сом</span></div>
+        <div class="line"><b>ИТОГО</b><b>${r.sum} сом</b></div><hr>
+        <div>ФН ${r.fn}</div><div>ФД ${r.fd}</div><div>ФМ ${r.fp}</div>
         <div id="rqr">${qr.createSvgTag({ cellSize: 5, margin: 4, scalable: false })}</div>`;
       $('receipt').dataset.qr = qr.createDataURL(8, 16);
       $('receipt').classList.remove('hidden');
@@ -85,7 +80,7 @@
       const d = new Date();
       const p = v => String(v).padStart(2, '0');
       const r = {
-        fn: '7380' + digits(12), fd: digits(5), fp: digits(10), qty,
+        fn: '0000' + digits(12), fd: digits(5), fp: digits(10), qty,
         sum: (PRICE * qty).toFixed(2),
         t: `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}T${p(d.getHours())}${p(d.getMinutes())}`,
       };

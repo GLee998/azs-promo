@@ -62,7 +62,7 @@ class Application(Base):
     __tablename__ = "applications"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    code: Mapped[str] = mapped_column(String(16), unique=True)
+    code: Mapped[str] = mapped_column(String(16), unique=True)  # «123 ABC»
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     phone: Mapped[str] = mapped_column(String(16), index=True)
     phone_verified: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -144,12 +144,15 @@ def clean_digits(v: str | None) -> str | None:
 
 
 def normalize_phone(raw: str) -> str | None:
+    """Кыргызский номер: +996 XXX XXX XXX. Принимаем и местную запись 0XXX XXX XXX."""
     d = "".join(ch for ch in raw if ch.isdigit())
-    if len(d) == 11 and d[0] == "8":
-        d = "7" + d[1:]
-    if len(d) == 10:
-        d = "7" + d
-    return "+" + d if len(d) == 11 and d[0] == "7" else None
+    if d.startswith("9960"):
+        d = "996" + d[4:]
+    if len(d) == 10 and d[0] == "0":
+        d = d[1:]
+    if len(d) == 9:
+        d = "996" + d
+    return "+" + d if len(d) == 12 and d.startswith("996") else None
 
 
 def process_photo(raw: bytes) -> bytes:
@@ -167,7 +170,8 @@ def process_photo(raw: bytes) -> bytes:
 
 def new_code(db: Session) -> str:
     while True:
-        code = "Z-" + "".join(random.choices("ABCDEFGHJKLMNPRSTUVWXYZ23456789", k=6))
+        # Как на кыргызском номерном знаке: 3 цифры и 3 латинские буквы, например «123 ABC».
+        code = f"{random.randint(0, 999):03d} " + "".join(random.choices("ABCEHKMOPTXY", k=3))
         if not db.scalar(select(Application.id).where(Application.code == code)):
             return code
 
@@ -210,7 +214,7 @@ class SmsRequest(BaseModel):
 def sms_send(body: SmsRequest, db: Session = Depends(get_db)):
     phone = normalize_phone(body.phone)
     if not phone:
-        raise HTTPException(400, "Введите номер в формате +7XXXXXXXXXX")
+        raise HTTPException(400, "Введите номер в формате +996 XXX XXX XXX")
     row = db.get(SmsCode, phone)
     if row and now() - as_utc(row.sent_at) < SMS_RESEND:
         raise HTTPException(429, "Код уже отправлен. Повторить можно через 30 секунд.")
@@ -220,7 +224,7 @@ def sms_send(body: SmsRequest, db: Session = Depends(get_db)):
     else:
         db.add(SmsCode(phone=phone, code=code, sent_at=now()))
     db.commit()
-    # TODO боевая версия: отправка через SMS-провайдера (SMS.ru, SMSC, МТС Exolve…).
+    # TODO боевая версия: отправка через SMS-провайдера Кыргызстана (например, Nikita, SMSPRO).
     return {"sent": True, "demo_code": code if DEMO_SMS else None}
 
 
@@ -252,7 +256,7 @@ async def create_application(
 ):
     phone_n = normalize_phone(phone)
     if not phone_n:
-        raise HTTPException(400, "Введите номер в формате +7XXXXXXXXXX")
+        raise HTTPException(400, "Введите номер в формате +996 XXX XXX XXX")
     if not consent:
         raise HTTPException(400, "Нужно согласие на обработку данных")
     if SMS_REQUIRED:

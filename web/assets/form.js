@@ -10,18 +10,40 @@ function setError(id, text) {
   show($(id), !!text);
 }
 
+// Кыргызский номер: +996 XXX XXX XXX. Принимаем и местную запись 0XXX XXX XXX.
 function normalizePhone(raw) {
   let d = raw.replace(/\D/g, '');
-  if (d.length === 11 && d[0] === '8') d = '7' + d.slice(1);
-  if (d.length === 10) d = '7' + d;
-  return /^7\d{10}$/.test(d) ? '+' + d : null;
+  if (d.startsWith('9960')) d = '996' + d.slice(4);
+  if (d.length === 10 && d[0] === '0') d = d.slice(1);
+  if (d.length === 9) d = '996' + d;
+  return /^996\d{9}$/.test(d) ? '+' + d : null;
 }
 
-// Строка из QR-кода кассового чека: t=20261117T1030&s=850.00&fn=...&i=...&fp=...&n=1
+// Показываем номер группами по мере ввода: +996 700 123 456
+function formatPhone(raw) {
+  let d = raw.replace(/\D/g, '');
+  if (d.startsWith('996')) d = d.slice(3);
+  // Коды операторов не начинаются с 0: это местная запись 0XXX, ноль убираем.
+  d = d.replace(/^0+/, '').slice(0, 9);
+  const parts = [d.slice(0, 3), d.slice(3, 6), d.slice(6, 9)].filter(Boolean);
+  return '+996 ' + parts.join(' ');
+}
+
+// QR-код фискального чека. Кыргызская ККМ онлайн ведёт на сервис ГНС:
+//   https://tax.salyk.kg/client/api/v1/ticket?date=20261117T1030&fn_number=...&fd_number=...&fm=...&sum=900.00
+// Поддерживаем и короткую запись t=...&s=...&fn=...&i=...&fp=...
 function parseReceiptQr(text) {
-  if (!text || !/fn=/.test(text)) return null;
-  const p = new URLSearchParams(text.trim());
-  const f = { fn: p.get('fn'), fd: p.get('i'), fp: p.get('fp'), sum: p.get('s'), date: p.get('t') };
+  if (!text || !/fn(_number)?=/.test(text)) return null;
+  const query = text.includes('?') ? text.slice(text.indexOf('?') + 1) : text;
+  const p = new URLSearchParams(query.trim());
+  const get = (...keys) => keys.map(k => p.get(k)).find(Boolean) || null;
+  const f = {
+    fn: get('fn_number', 'fn'),
+    fd: get('fd_number', 'i'),
+    fp: get('fm', 'fp'),
+    sum: get('sum', 's'),
+    date: get('date', 't'),
+  };
   return f.fn && f.fd && f.fp ? f : null;
 }
 
@@ -72,16 +94,20 @@ $('photo').addEventListener('change', async e => {
     state.photo = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.85));
     $('preview').src = URL.createObjectURL(state.photo);
     show($('preview'));
+    show($('camIcon'), false);
+    show($('uploadHint'), false);
+    $('uploadBox').classList.add('has-photo');
     $('uploadText').textContent = 'Заменить фото';
 
     state.fiscal = decodeQr(img);
     if (state.fiscal) {
       status.className = 'qr-status ok';
-      status.textContent = `QR-код чека распознан: ФД № ${state.fiscal.fd}, сумма ${state.fiscal.sum} ₽`;
+      status.textContent = `QR-код чека распознан: ФД № ${state.fiscal.fd}, сумма ${state.fiscal.sum} сом`;
     } else {
       status.className = 'qr-status warn';
       status.textContent = 'QR-код не распознан. Ничего страшного, мы проверим чек вручную. Убедитесь, что чек виден целиком.';
     }
+    race('update');
   } catch {
     state.photo = null;
     status.className = 'qr-status warn';
@@ -89,7 +115,13 @@ $('photo').addEventListener('change', async e => {
   }
 });
 
-$('phone').addEventListener('input', () => {
+$('phone').addEventListener('focus', () => {
+  if (!$('phone').value) $('phone').value = '+996 ';
+});
+
+$('phone').addEventListener('input', e => {
+  // Не мешаем стирать: группируем цифры только при наборе.
+  if (!e.inputType || !e.inputType.startsWith('delete')) $('phone').value = formatPhone($('phone').value);
   setError('phoneErr');
   // Номер поменяли: код нужно запросить заново.
   if (state.smsSentTo && normalizePhone($('phone').value) !== state.smsSentTo) {
@@ -103,7 +135,7 @@ $('resend').addEventListener('click', () => sendSms(state.smsSentTo));
 
 $('rulesLink').addEventListener('click', e => {
   e.preventDefault();
-  show($('rules'));
+  $('rules').open = true;
   $('rules').scrollIntoView({ behavior: 'smooth' });
 });
 
@@ -128,7 +160,7 @@ $('form').addEventListener('submit', async e => {
   e.preventDefault();
   const phone = normalizePhone($('phone').value);
   const consent = $('consent').checked;
-  setError('phoneErr', phone ? '' : 'Введите номер в формате +7XXXXXXXXXX');
+  setError('phoneErr', phone ? '' : 'Введите номер в формате +996 XXX XXX XXX');
   setError('photoErr', state.photo ? '' : 'Загрузите фото чека');
   setError('consentErr', consent ? '' : 'Нужно согласие на обработку данных');
   setError('smsErr');
@@ -164,9 +196,9 @@ $('form').addEventListener('submit', async e => {
 
     $('appId').textContent = r.code;
     show($('formCard'), false);
-    show($('rules'), false);
     show($('successCard'));
-    window.scrollTo({ top: 0 });
+    $('roadWrap').scrollIntoView({ behavior: 'smooth' });
+    race('finish');
   } catch (err) {
     const smsProblem = /код/i.test(err.message);
     setError(smsProblem ? 'smsErr' : 'submitErr', err.message);
@@ -182,8 +214,17 @@ $('again').addEventListener('click', () => {
   show($('preview'), false);
   show($('qrStatus'), false);
   show($('smsBlock'), false);
-  $('uploadText').textContent = '📷 Нажмите, чтобы сфотографировать или выбрать фото';
+  show($('camIcon'));
+  show($('uploadHint'));
+  $('uploadBox').classList.remove('has-photo');
+  $('uploadText').textContent = 'Сфотографировать чек';
   $('submit').textContent = 'Отправить заявку';
   show($('successCard'), false);
   show($('formCard'));
+  race('reset');
 });
+
+// Машинка на дороге-прогрессе (assets/fx.js). Без анимаций форма работает так же.
+function race(action) {
+  if (typeof Race !== 'undefined') Race[action]();
+}

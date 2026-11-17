@@ -87,7 +87,8 @@ function renderStats(s) {
     [s.duplicates, 'дубликатов чеков'],
     [s.participants, 'номеров участников'],
   ];
-  $('stats').innerHTML = tiles.map(([n, t]) => `<div class="stat"><b>${n}</b><span>${t}</span></div>`).join('');
+  $('stats').innerHTML = tiles.map(([n, t], i) =>
+    `<div class="stat${i === tiles.length - 1 ? ' accent' : ''}"><b>${n}</b><span>${t}</span></div>`).join('');
 }
 
 function matches(a) {
@@ -102,7 +103,9 @@ function matches(a) {
 function render() {
   const list = items.filter(matches);
   if (!list.length) {
-    $('list').innerHTML = `<div class="card empty">${items.length ? 'Ничего не найдено' : 'Заявок пока нет'}</div>`;
+    $('list').innerHTML = `<div class="card empty"><img src="img/car.svg" alt="">${items.length
+      ? 'Под фильтр ничего не подходит. Сбросьте поиск или статус.'
+      : 'Заявок пока нет. Они появятся здесь, как только клиенты отправят чеки.'}</div>`;
     return;
   }
   $('list').innerHTML = list.map(card).join('');
@@ -121,17 +124,16 @@ function card(a) {
       <h3>${esc(a.code)} <span class="tag ${cls}">${label}</span>
         ${a.duplicate_of ? `<span class="tag dup">Дубликат чека из ${esc(a.duplicate_of)}</span>` : ''}
         ${a.returned ? '<span class="tag rejected">Возврат</span>' : ''}</h3>
-      <div class="meta">${date} · ${esc(a.phone)} ${a.phone_verified ? '✓ подтверждён' : '(не подтверждён)'}
-        ${a.receipt_sum ? ` · сумма ${esc(a.receipt_sum)} ₽` : ''}</div>
+      <div class="meta"><span>${date}</span><span>${esc(a.phone)} ${a.phone_verified ? '✓ подтверждён' : '(не подтверждён)'}</span>${a.receipt_sum ? `<span>сумма ${esc(a.receipt_sum)} сом</span>` : ''}</div>
       ${a.reject_reason ? `<div class="meta">Причина: ${esc(a.reject_reason)}</div>` : ''}
 
       <div class="fiscal">
         <div><label>ФН</label><input data-f="fn" value="${esc(a.fn)}" ${locked} inputmode="numeric"></div>
         <div><label>ФД</label><input data-f="fd" value="${esc(a.fd)}" ${locked} inputmode="numeric"></div>
-        <div><label>ФП</label><input data-f="fp" value="${esc(a.fp)}" ${locked} inputmode="numeric"></div>
+        <div><label>ФМ</label><input data-f="fp" value="${esc(a.fp)}" ${locked} inputmode="numeric"></div>
         <div><label>Комбо в чеке</label><input data-f="combos" type="number" min="1" max="20" value="${a.combos}" ${locked}></div>
       </div>
-      ${src ? `<div class="meta">Реквизиты ${src}</div>` : '<div class="meta">QR не распознан: впишите ФН, ФД, ФП с фото чека</div>'}
+      ${src ? `<div class="meta">Реквизиты ${src}</div>` : '<div class="meta">QR не распознан: впишите ФН, ФД, ФМ с фото чека</div>'}
 
       <div class="checks">
         <label><input type="checkbox" data-c="check_purchase" ${a.check_purchase ? 'checked' : ''}> Покупка сверена с продажами</label>
@@ -143,12 +145,14 @@ function card(a) {
         ${a.status !== 'approved' ? '<button class="btn small" data-act="approve">Допустить</button>' : ''}
         ${a.status !== 'rejected' ? '<button class="btn small secondary" data-act="reject">Отклонить</button>' : ''}
         ${a.status !== 'pending' ? '<button class="btn small secondary" data-act="reset">Вернуть на проверку</button>' : ''}
-        ${a.numbers.length ? `<span class="numbers">№ участника: ${a.numbers.map(esc).join(', ')}</span>` : ''}
+        ${a.numbers.length ? `<span class="numbers">${a.numbers.map(plate).join('')}</span>` : ''}
       </div>
       <div class="error hidden" data-err></div>
     </div>
   </article>`;
 }
+
+const plate = n => `<span class="plate sm"><span class="num">${esc(n)}</span><span class="reg"><i></i><span>KG</span></span></span>`;
 
 // Фото закрыто паролем, поэтому грузим его через fetch с заголовком авторизации.
 async function loadPhoto(id) {

@@ -46,20 +46,20 @@ def apps() -> dict:
 
 def test_flow():
     # Неверный SMS-код
-    client.post("/api/sms/send", json={"phone": "89990000000"})
-    r = client.post("/api/applications", data={"phone": "89990000000", "consent": "true", "sms_code": "0000x"},
+    client.post("/api/sms/send", json={"phone": "0700000000"})
+    r = client.post("/api/applications", data={"phone": "0700000000", "consent": "true", "sms_code": "0000x"},
                     files={"photo": ("r.jpg", jpeg(), "image/jpeg")})
     assert r.status_code == 400
 
     # Не фото
-    code = client.post("/api/sms/send", json={"phone": "+79993334455"}).json()["demo_code"]
-    r = client.post("/api/applications", data={"phone": "+79993334455", "consent": "true", "sms_code": code},
+    code = client.post("/api/sms/send", json={"phone": "+996555334455"}).json()["demo_code"]
+    r = client.post("/api/applications", data={"phone": "+996555334455", "consent": "true", "sms_code": code},
                     files={"photo": ("r.jpg", b"not an image", "image/jpeg")})
     assert r.status_code == 400
 
-    first = submit("+7 999 111-22-33", **FISCAL)
-    dup = submit("+79995556677", **FISCAL)  # кто-то отправил фото того же чека
-    manual = submit("+79990001122")  # QR не распознан
+    first = submit("+996 700 111 223", **FISCAL)
+    dup = submit("0555 556 677", **FISCAL)  # кто-то отправил фото того же чека
+    manual = submit("772000112")  # QR не распознан
 
     assert client.get("/api/admin/applications").status_code == 401
     a = apps()
