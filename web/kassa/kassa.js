@@ -100,7 +100,7 @@ function render() {
   list = [...list.filter(r => r.station === station), ...list.filter(r => r.station !== station)];
 
   $('queue').innerHTML = list.length ? list.map(r => card(r, station)).join('') :
-    `<div class="card empty"><img src="shared/img/truck.svg" alt="">${q
+    `<div class="card empty"><img src="shared/img/3d/delivery_truck_3d.png" alt="">${q
       ? 'Заявки с таким кодом нет. Проверьте код на экране клиента или попросите обновить страницу.'
       : 'Сейчас никто не ждёт машинку. Новые заявки появятся здесь сами.'}</div>`;
   list.forEach(r => loadPhoto(r.id));

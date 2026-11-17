@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Френч-дог">
+  <!-- Френч-дог в стиле объёмных иконок: свет сверху слева, мягкие тени, без контуров. -->
+  <defs>
+    <linearGradient id="fdBun" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#C46A22"/>
+      <stop offset=".3" stop-color="#F2B25E"/>
+      <stop offset=".55" stop-color="#FFD28A"/>
+      <stop offset=".85" stop-color="#E0913D"/>
+      <stop offset="1" stop-color="#A9541A"/>
+    </linearGradient>
+    <radialGradient id="fdCrumb" cx=".45" cy=".4" r=".6">
+      <stop offset="0" stop-color="#FFF4D9"/>
+      <stop offset=".7" stop-color="#FBE2AE"/>
+      <stop offset="1" stop-color="#E7B86E"/>
+    </radialGradient>
+    <linearGradient id="fdSausage" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#9C2F1C"/>
+      <stop offset=".35" stop-color="#E5684D"/>
+      <stop offset=".55" stop-color="#F48A6E"/>
+      <stop offset="1" stop-color="#8E2716"/>
+    </linearGradient>
+    <linearGradient id="fdSleeve" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#0060A3"/>
+      <stop offset=".35" stop-color="#22AEF0"/>
+      <stop offset=".6" stop-color="#0C97DE"/>
+      <stop offset="1" stop-color="#004F8C"/>
+    </linearGradient>
+    <linearGradient id="fdSleeveTop" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".35"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="fdShade" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#3A1A5C" stop-opacity=".35"/>
+      <stop offset="1" stop-color="#3A1A5C" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="fdBunClip"><rect x="76" y="44" width="104" height="200" rx="52"/></clipPath>
+  </defs>
+
+  <ellipse cx="128" cy="244" rx="70" ry="10" fill="url(#fdShade)"/>
+
+  <g transform="rotate(-10 128 140)">
+    <!-- булка -->
+    <rect x="76" y="44" width="104" height="200" rx="52" fill="url(#fdBun)"/>
+    <g clip-path="url(#fdBunClip)">
+      <ellipse cx="128" cy="62" rx="50" ry="17" fill="url(#fdCrumb)"/>
+      <ellipse cx="128" cy="63" rx="24" ry="7" fill="#C98E4A" opacity=".7"/>
+      <!-- блик корочки -->
+      <rect x="96" y="84" width="14" height="140" rx="7" fill="#FFF1CF" opacity=".55"/>
+      <rect x="160" y="90" width="8" height="120" rx="4" fill="#7A3A0E" opacity=".25"/>
+    </g>
+    <!-- сосиска выходит из отверстия булки -->
+    <path d="M109 64 V22 A19 19 0 0 1 147 22 V64 A19 5 0 0 1 109 64 Z" fill="url(#fdSausage)"/>
+    <path d="M120 14 C120 10 123 8 127 8" stroke="#fff" stroke-width="5" stroke-linecap="round" fill="none" opacity=".6"/>
+    <path d="M113 34 C121 37 135 37 143 34" stroke="#6E1D10" stroke-width="2" fill="none" opacity=".4"/>
+    <path d="M112 52 L119 45 L126 52 L133 45 L140 52 L145 47" stroke="#FFD23F" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <!-- передний край мякиша закрывает основание сосиски -->
+    <path d="M100 63 A28 8 0 0 0 156 63 A28 4 0 0 1 100 63 Z" fill="#FBE2AE"/>
+    <!-- бумажный рукав в цветах Partner Neft -->
+    <g transform="translate(0 67) scale(1 .74)">
+    <path d="M68 140 L82 132 L96 140 L110 132 L124 140 L138 132 L152 140 L166 132 L180 140 L188 136 L184 214 C184 236 158 252 128 252 C98 252 72 236 72 214 Z" fill="url(#fdSleeve)"/>
+    <path d="M68 140 L82 132 L96 140 L110 132 L124 140 L138 132 L152 140 L166 132 L180 140 L188 136 L187 156 L69 156 Z" fill="url(#fdSleeveTop)"/>
+    <rect x="70" y="160" width="117" height="11" fill="#F07DB8"/>
+    <rect x="70" y="171" width="117" height="3" fill="#000" opacity=".12"/>
+    <g transform="translate(128 206)" stroke="#fff" stroke-width="5" stroke-linecap="round" opacity=".92">
+      <path d="M0 -17 V17 M-14.7 -8.5 L14.7 8.5 M-14.7 8.5 L14.7 -8.5"/>
+    </g>
+    <rect x="86" y="178" width="10" height="56" rx="5" fill="#fff" opacity=".22"/>
+    </g>
+  </g>
+</svg>

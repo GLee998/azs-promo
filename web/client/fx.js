@@ -2,12 +2,13 @@
 
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-// Один заход при загрузке: текст, затем собирается уравнение акции и въезжает караван.
+// Один заход при загрузке: текст, затем собирается комбо, из него появляется машинка, въезжает караван.
 if (window.gsap && !reduceMotion) {
   const tl = gsap.timeline({ defaults: { ease: 'power3.out' } });
   tl.from('.hero .reveal', { y: 24, opacity: 0, duration: .6, stagger: .08 })
-    .from('.equation .piece:not(.car)', { y: 40, opacity: 0, scale: .6, duration: .5, stagger: .08, ease: 'back.out(2.2)' }, '-=.35')
-    .from('#heroCar', { x: -260, opacity: 0, duration: .8, ease: 'power4.out' }, '-=.15')
+    .from('.combo-in .piece', { y: 30, opacity: 0, scale: .7, duration: .5, stagger: .1, ease: 'back.out(2)' }, '-=.35')
+    .from('#heroCar', { y: 40, scale: .6, opacity: 0, duration: .7, ease: 'back.out(1.8)' }, '-=.1')
+    .from('.combo-out .piece', { scale: 0, opacity: 0, duration: .45, stagger: .12, ease: 'back.out(2.5)' }, '-=.3')
     .from('#truck', { x: '-120vw', duration: 1.6, ease: 'power2.out' }, '-=.6')
     .to('#truck', { rotate: -1.5, y: -3, duration: .14, yoyo: true, repeat: 1, transformOrigin: '90% 100%' });
 }
@@ -20,7 +21,7 @@ const Race = (() => {
   // k — сколько этапов пройдено (0..3); finished — машинка проехала за флаг.
   function place(k, finished) {
     const pct = finished ? 100 : (k / 3) * 78;
-    racer.style.left = `calc(${pct}% - ${finished ? 98 : pct * 0.9}px + 6px)`;
+    racer.style.left = `calc(${pct}% - ${finished ? 70 : pct * 0.64}px + 6px)`;
     steps.forEach((li, i) => li.classList.toggle('done', finished || i < k));
     if (k !== last && last !== -1) {
       racer.classList.remove('revving');
@@ -51,7 +52,7 @@ const Race = (() => {
       setTimeout(() => confetti({ particleCount: 60, angle: 120, spread: 60, origin: { x: 1, y: .4 }, colors }), 250);
     }
     if (window.gsap && !reduceMotion) {
-      gsap.from('#ticket .finish-car', { x: -260, duration: .8, ease: 'power4.out' });
+      gsap.from('#ticket .finish-car', { x: -220, duration: .8, ease: 'power4.out' });
       gsap.from('#entryNumber', { scale: .7, opacity: 0, duration: .5, delay: .3, ease: 'back.out(2)' });
     }
   }

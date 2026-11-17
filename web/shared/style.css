@@ -21,7 +21,8 @@
   --bad: #B3264A;
   --bad-bg: #FBE3EA;
 
-  --display: "Russo One", "Arial Black", sans-serif;
+  --display: "Unbounded", "Arial Black", sans-serif;
+  --plate-font: "Russo One", "Arial Black", sans-serif; /* номерные знаки и номера участников */
   --body: "Golos Text", system-ui, -apple-system, "Segoe UI", sans-serif;
 
   --r-lg: 22px;
@@ -45,7 +46,8 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-h1, h2, h3 { font-family: var(--display); font-weight: 400; letter-spacing: -0.01em; }
+h1, h2, h3 { font-family: var(--display); font-weight: 600; letter-spacing: -0.02em; text-wrap: balance; }
+.face-right { scale: -1 1; } /* 3D-иконки смотрят влево, а едем мы вправо */
 a { color: var(--blue-deep); text-underline-offset: 3px; }
 img { max-width: 100%; }
 :focus-visible { outline: 3px solid var(--pink-light); outline-offset: 2px; border-radius: 4px; }
@@ -125,26 +127,45 @@ img { max-width: 100%; }
 .lang-switch button[aria-pressed="true"] { background: var(--white); color: var(--night); }
 .lang-switch button:focus-visible { outline: 2px solid var(--pink-light); outline-offset: 2px; }
 .partners { display: inline-flex; align-items: center; gap: 8px; margin: 22px 0 0; font-weight: 600; font-size: 15px; color: #CFE6F7; }
-.partners .x { color: var(--pink-light); font-family: var(--display); }
-.hero h1 { font-size: clamp(40px, 10.5vw, 78px); line-height: .98; margin: 8px 0 16px; }
+.partners .x { color: var(--pink-light); font-weight: 700; }
+.hero h1 { font-size: clamp(34px, 8.6vw, 64px); font-weight: 700; line-height: 1.02; margin: 10px 0 16px; }
 .hero .lead { font-size: 19px; max-width: 26em; margin: 0; color: #E6F2FB; }
 .hero .btn.go { margin-top: 24px; }
 
-.equation {
-  display: flex; align-items: flex-end; justify-content: center; flex-wrap: nowrap;
-  gap: clamp(4px, 1.6vw, 14px); padding: 8px 0 0;
-  position: relative; z-index: 1; margin-bottom: -12px; /* колёса стоят на дороге */
+/* Комбо: два френч-дога и две колы превращаются в машинку. Одна композиция и на телефоне, и на десктопе. */
+.combo {
+  position: relative; z-index: 1;
+  padding: 18px 12px 0;
+  border-radius: 32px 32px 0 0;
+  background:
+    radial-gradient(70% 55% at 50% 100%, rgba(0,142,215,.55), transparent 70%),
+    linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.02));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.18);
 }
-.equation img { display: block; height: auto; filter: drop-shadow(0 6px 0 rgba(0,0,0,.18)); }
-.equation .cup { width: clamp(32px, 8.5vw, 64px); }
-.equation .dog { width: clamp(60px, 15vw, 112px); }
-.equation .car { width: clamp(110px, 29vw, 220px); }
-.equation .stack { display: flex; flex-direction: column; align-items: center; gap: 4px; }
-.equation .pair { display: flex; gap: 2px; align-items: flex-end; }
-.equation .op { font: 400 clamp(26px, 7vw, 50px)/1 var(--display); color: var(--pink-light); padding-bottom: 14px; }
+.combo img { display: block; height: auto; }
+.combo-in { display: flex; align-items: center; justify-content: center; gap: clamp(6px, 2vw, 18px); }
+.pair { position: relative; display: flex; align-items: flex-end; }
+.pair img { flex: none; width: clamp(100px, 29vw, 144px); filter: drop-shadow(0 10px 14px rgba(0,20,50,.45)); }
+.pair.cups img { margin: 0 -22px; } /* бутылка узкая: подтягиваем плашку ×2 */
+.times {
+  position: absolute; right: -4px; top: 2px; z-index: 2;
+  padding: 3px 9px; border-radius: 99px; background: var(--pink); color: var(--white);
+  font: 700 14px/1.2 var(--display); box-shadow: 0 6px 14px -4px rgba(174,74,132,.8);
+}
+.combo .op { font: 600 clamp(26px, 6.5vw, 40px)/1 var(--display); color: var(--pink-light); }
+.combo-out { position: relative; display: flex; justify-content: center; align-items: flex-end; margin-top: -10px; padding-bottom: 18px; }
+.combo-out::before { /* подиум, на котором стоит машинка */
+  content: ""; position: absolute; left: 50%; bottom: 6px; width: min(78%, 330px); aspect-ratio: 5 / 1;
+  transform: translateX(-50%); border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(255,255,255,.95), rgba(170,220,250,.55) 45%, rgba(0,142,215,0) 100%);
+  filter: blur(2px);
+}
+.combo .car { position: relative; width: clamp(170px, 50vw, 280px); filter: drop-shadow(0 18px 18px rgba(0,20,50,.5)); }
+.combo .spark { position: absolute; right: 8%; top: 0; width: clamp(38px, 10vw, 60px); }
+.combo .gift { position: absolute; left: 5%; bottom: 18px; width: clamp(52px, 14vw, 84px); transform: rotate(8deg); filter: drop-shadow(0 10px 12px rgba(0,20,50,.45)); }
 
 .caravan { position: relative; height: 0; }
-.caravan img { position: absolute; bottom: -14px; left: 4%; width: clamp(150px, 34vw, 280px); z-index: 1; }
+.caravan img { position: absolute; bottom: -4px; left: 3%; width: clamp(60px, 14vw, 104px); z-index: 2; filter: drop-shadow(0 8px 8px rgba(0,0,0,.35)); }
 
 .hero-road { position: relative; height: 34px; margin: 6px -16px 0; background: #0A2540; }
 .hero-road::after, .road::after {
@@ -157,20 +178,21 @@ img { max-width: 100%; }
   .hero-inner { grid-template-columns: 1.1fr 1fr; gap: 40px; }
   .brandline { grid-column: 1 / -1; }
   .brandline .logo { height: 46px; }
-  .hero-text { padding-bottom: 150px; }
+  .hero-text { padding-bottom: 110px; align-self: center; }
+  .combo { padding-top: 26px; }
   .hero-road { margin: 0 -24px; }
 }
 @media (max-width: 899px) {
   /* на телефоне уравнение стоит над дорогой, по дороге едет караван */
-  .hero-art { padding-bottom: clamp(70px, 16vw, 120px); }
-  .equation { margin-bottom: 0; }
+  .hero-art { margin: 6px -4px 0; }
+  .caravan img { left: auto; right: 4%; }
 }
 
 /* ---------- основная колонка ---------- */
 .wrap { max-width: 600px; margin: 0 auto; padding: 0 16px; }
 .wrap.wide { max-width: 1100px; margin-top: 24px; }
 
-.section-title { font-size: clamp(26px, 6vw, 34px); line-height: 1.1; margin: 48px 0 8px; }
+.section-title { font-size: clamp(22px, 5.6vw, 32px); line-height: 1.15; margin: 48px 0 8px; }
 .section-sub { color: var(--muted); margin: 0 0 20px; }
 .station-chip { display: inline-block; margin-left: 6px; padding: 2px 10px; border-radius: 99px; background: var(--white); color: var(--blue-deep); font: 600 14px/1.6 var(--body); vertical-align: middle; box-shadow: inset 0 0 0 1.5px var(--line); }
 
@@ -181,7 +203,7 @@ img { max-width: 100%; }
 }
 .road { position: relative; height: 54px; border-radius: var(--r-md); background: var(--night); box-shadow: inset 0 -4px 0 rgba(0,0,0,.25); }
 .road .flag { position: absolute; right: 10px; bottom: 22px; width: 28px; z-index: 1; }
-.road .racer { position: absolute; bottom: 6px; left: 6px; width: 92px; z-index: 2; transition: left .7s cubic-bezier(.34, 1.4, .64, 1); }
+.road .racer { position: absolute; bottom: 2px; left: 6px; width: 64px; z-index: 2; transition: left .7s cubic-bezier(.34, 1.4, .64, 1); }
 .road .racer img { display: block; width: 100%; }
 .road .racer.revving img { animation: rev .35s ease-in-out 2; }
 @keyframes rev { 50% { transform: translateY(-3px) rotate(-2deg); } }
@@ -239,7 +261,7 @@ input::placeholder { color: #8BA3B6; }
 }
 .upload:hover, .upload:focus-within { border-color: var(--blue); background: var(--ice-2); }
 .upload input { position: absolute; width: 1px; height: 1px; opacity: 0; }
-.upload .cam { width: 56px; height: 56px; border-radius: 50%; background: var(--night); display: flex; align-items: center; justify-content: center; }
+.upload .cam { width: 72px; height: 72px; filter: drop-shadow(0 8px 10px rgba(0,58,112,.25)); }
 .upload b { color: var(--ink); font-size: 17px; }
 .upload img#preview { max-height: 280px; border-radius: var(--r-sm); box-shadow: 0 6px 20px -8px rgba(0,0,0,.4); }
 .upload.has-photo { min-height: 0; border-style: solid; border-color: var(--line); background: var(--white); }
@@ -262,18 +284,18 @@ input::placeholder { color: #8BA3B6; }
 .ticket { text-align: center; padding-top: 30px; }
 .ticket h2 { font-size: clamp(30px, 8vw, 40px); margin: 6px 0 8px; line-height: 1.05; }
 .ticket p { margin: 0 auto; max-width: 26em; }
-.ticket .finish-car { width: 200px; margin: 0 auto; display: block; }
+.ticket .finish-car { width: 150px; margin: 0 auto; display: block; filter: drop-shadow(0 14px 14px rgba(0,58,112,.3)); }
 .ticket .show-cashier { margin: 18px auto 0; padding: 12px 16px; max-width: 26em; border-radius: var(--r-md); background: var(--night); color: var(--white); font-weight: 600; }
 .waiting-line { display: inline-flex; gap: 10px; align-items: center; margin-top: 14px; color: var(--muted); font-size: 15px; }
 .pulse { width: 10px; height: 10px; border-radius: 50%; background: var(--pink); animation: pulse 1.2s ease-in-out infinite; }
 @keyframes pulse { 50% { transform: scale(1.6); opacity: .4; } }
-.entry-number { display: inline-block; margin-top: 14px; padding: 8px 16px; border-radius: 99px; background: var(--pink-soft); color: var(--pink-deep); font: 400 22px/1.2 var(--display); }
+.entry-number { display: inline-block; margin-top: 14px; padding: 8px 16px; border-radius: 99px; background: var(--pink-soft); color: var(--pink-deep); font: 400 22px/1.2 var(--plate-font); }
 
 /* номерной знак (Кыргызстан) */
 .plate {
   display: inline-flex; align-items: stretch; margin: 22px 0 6px;
   border: 3px solid var(--ink); border-radius: 8px; background: var(--white); overflow: hidden;
-  font-family: var(--display); color: var(--ink); box-shadow: 0 6px 0 rgba(0,0,0,.08);
+  font-family: var(--plate-font); color: var(--ink); box-shadow: 0 6px 0 rgba(0,0,0,.08);
 }
 .plate .num { padding: 6px 14px; font-size: 30px; letter-spacing: .06em; line-height: 1.1; }
 .plate .region { display: flex; align-items: center; padding: 6px 10px; border-right: 3px solid var(--ink); font-size: 26px; }
@@ -298,19 +320,27 @@ input::placeholder { color: #8BA3B6; }
 .how { counter-reset: how; display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
 .how li {
   counter-increment: how; position: relative;
-  display: grid; grid-template-columns: 44px 1fr; gap: 14px; align-items: start;
-  padding: 18px 16px; border-radius: var(--r-md); background: var(--white);
+  display: grid; grid-template-columns: 40px 1fr 56px; grid-template-areas: "n t i" "n s s"; gap: 6px 14px; align-items: center;
+  padding: 16px 14px 18px 16px; box-shadow: 0 1px 0 var(--line); border-radius: var(--r-md); background: var(--white);
 }
 .how li::before {
-  content: counter(how); width: 44px; height: 44px; border-radius: 12px;
+  content: counter(how); grid-area: n; width: 40px; height: 40px; border-radius: 12px; align-self: start;
   display: flex; align-items: center; justify-content: center;
-  font: 400 20px/1 var(--display); background: var(--night); color: var(--white);
+  font: 600 17px/1 var(--display); background: var(--night); color: var(--white);
 }
 .how li:last-child { background: var(--night); color: var(--white); }
 .how li:last-child::before { background: var(--pink); }
 .how li:last-child span { color: #CFE6F7; }
-.how b { display: block; font-size: 17px; margin-bottom: 2px; }
-.how span { color: var(--muted); font-size: 15px; }
+.how li > div { display: contents; }
+.how b { grid-area: t; display: block; font-size: 17px; line-height: 1.3; }
+.how span { grid-area: s; display: block; color: var(--muted); font-size: 15px; line-height: 1.45; }
+.how-ico { grid-area: i; align-self: start; width: 56px; height: auto; filter: drop-shadow(0 8px 10px rgba(0,30,60,.22)); }
+@media (max-width: 520px) {
+  /* на телефоне текст шага идёт под заголовком на всю ширину карточки */
+  .how li { grid-template-columns: 40px 1fr 48px; grid-template-areas: "n t i" "s s s"; }
+  .how-ico { width: 48px; }
+}
+.how li:last-child .how-ico { filter: drop-shadow(0 8px 12px rgba(0,0,0,.4)); }
 
 .site-footer { max-width: 600px; margin: 40px auto 0; padding: 20px 16px 40px; color: var(--muted); font-size: 14px; display: flex; flex-wrap: wrap; gap: 8px 18px; justify-content: center; }
 
@@ -406,9 +436,13 @@ input::placeholder { color: #8BA3B6; }
 .poster-top .partners { margin: 4px 0 0; position: relative; }
 .poster h1 { font-size: 40px; line-height: 1; margin: 6px 0 10px; position: relative; }
 .poster-top p { margin: 0 auto 14px; max-width: 24em; font-size: 17px; position: relative; color: #E6F2FB; }
-.poster .equation .cup { width: 44px; }
-.poster .equation .dog { width: 78px; }
-.poster .equation .car { width: 160px; }
+.poster-combo { position: relative; display: flex; align-items: center; justify-content: center; gap: 6px; margin: 4px 0 -6px; }
+.poster-combo img { display: block; filter: drop-shadow(0 8px 10px rgba(0,20,50,.4)); }
+.poster-combo .item { position: relative; }
+.poster-combo .item img { width: 92px; }
+.poster-combo .item b { position: absolute; right: 2px; top: 2px; padding: 2px 8px; border-radius: 99px; background: var(--pink); font: 700 13px/1.3 var(--display); }
+.poster-combo .op { font: 600 30px/1 var(--display); color: var(--pink-light); }
+.poster-combo .car { width: 140px; }
 .poster .hero-road { margin: 0 -28px; height: 26px; }
 .poster-body { padding: 24px 28px 28px; text-align: center; }
 .poster-body .scan { font: 400 24px/1.1 var(--display); margin: 0 0 16px; }
