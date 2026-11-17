@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Регистрация чека — розыгрыш</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <header class="hero">
+    <h1>Зарегистрируйте чек и участвуйте в розыгрыше</h1>
+    <p>2 Coca-Cola + 2 френч-дога = машинка и шанс на приз</p>
+    <span class="demo-badge">Тестовая версия</span>
+  </header>
+
+  <main class="wrap">
+    <section class="card" id="formCard">
+      <h2>Как участвовать</h2>
+      <ol class="steps">
+        <li>Купите акционное комбо и получите машинку.</li>
+        <li>Укажите номер телефона и сфотографируйте чек целиком.</li>
+        <li>После проверки чека мы пришлём вам номер участника.</li>
+      </ol>
+      <p class="notice">Регистрируйте свой чек сразу после покупки. Один чек можно зарегистрировать только один раз. Сохраните оригинал чека до окончания розыгрыша.</p>
+
+      <form id="form" novalidate>
+        <label for="phone">Номер телефона</label>
+        <input id="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+7 (___) ___-__-__" required>
+        <div class="error hidden" id="phoneErr"></div>
+
+        <div id="smsBlock" class="hidden">
+          <label for="smsCode">Код из SMS</label>
+          <div class="hint" id="smsHint"></div>
+          <input id="smsCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="4" placeholder="____">
+          <div class="error hidden" id="smsErr"></div>
+          <button class="btn secondary small" id="resend" type="button" style="margin-top:8px">Отправить код ещё раз</button>
+        </div>
+
+        <label>Фото чека <span class="hint">— целиком, чтобы был виден QR-код</span></label>
+        <label class="upload" id="uploadBox">
+          <img id="preview" class="hidden" alt="Фото чека">
+          <span id="uploadText">📷 Нажмите, чтобы сфотографировать или выбрать фото</span>
+          <input id="photo" type="file" accept="image/*" capture="environment">
+        </label>
+        <div class="qr-status hidden" id="qrStatus"></div>
+        <div class="error hidden" id="photoErr"></div>
+
+        <label class="consent">
+          <input id="consent" type="checkbox">
+          <span>Я согласен(-на) на обработку персональных данных (номер телефона, фото чека) для участия в розыгрыше и с <a href="#rules" id="rulesLink">правилами акции</a>.</span>
+        </label>
+        <div class="error hidden" id="consentErr"></div>
+
+        <button class="btn" id="submit" type="submit">Отправить заявку</button>
+        <div class="error hidden" id="submitErr"></div>
+      </form>
+    </section>
+
+    <section class="card success hidden" id="successCard">
+      <div class="check">✓</div>
+      <h2>Заявка принята</h2>
+      <p>После проверки чека вы получите номер участника.</p>
+      <p class="hint">Номер заявки: <b id="appId"></b></p>
+      <button class="btn secondary" id="again" type="button">Зарегистрировать ещё один чек</button>
+    </section>
+
+    <section class="card hidden" id="rules">
+      <h2>Кратко о правилах</h2>
+      <ul class="steps">
+        <li>Участвуют чеки с акционным комбо «Coca-Cola»: 2 Coca-Cola и 2 френч-дога.</li>
+        <li>Один чек регистрируется один раз. Если в чеке два комбо — вы получите два номера участника.</li>
+        <li>Перед розыгрышем мы сверяем чек с данными продаж, выдачей игрушки и возвратами.</li>
+        <li>В спорных случаях мы попросим показать оригинал чека или электронный чек.</li>
+      </ul>
+    </section>
+  </main>
+
+  <footer>Тестовая версия · <a href="test-receipt.html">Тестовый чек</a> · <a href="stand.html">Табличка для стойки</a> · <a href="admin.html">Реестр</a></footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+  <script src="assets/api.js"></script>
+  <script src="assets/form.js"></script>
+</body>
+</html>

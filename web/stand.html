@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Табличка для стойки</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <main class="poster">
+    <div class="card">
+      <h1>Купили комбо?<br>Участвуйте в розыгрыше!</h1>
+      <p>2 Coca-Cola + 2 френч-дога. Отсканируйте QR-код, укажите телефон и сфотографируйте чек.</p>
+      <div id="qr"></div>
+      <div class="url" id="url"></div>
+      <div class="big-warn">Зарегистрируйте свой чек сразу после покупки</div>
+      <p class="hint">Один чек регистрируется один раз. Сохраните чек до окончания розыгрыша.</p>
+    </div>
+    <button class="btn no-print" onclick="print()">Распечатать</button>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+  <script>
+    const formUrl = new URL('./', location.href).href;
+    const qr = qrcode(0, 'M');
+    qr.addData(formUrl);
+    qr.make();
+    document.getElementById('qr').innerHTML = qr.createSvgTag({ cellSize: 7, margin: 2, scalable: false });
+    document.getElementById('url').textContent = formUrl;
+  </script>
+</body>
+</html>

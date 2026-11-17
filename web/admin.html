@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Реестр заявок</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <div class="topbar">
+    <h1>Реестр заявок · маркетинг</h1>
+    <div class="actions hidden" id="toolbar" style="margin:0">
+      <button class="btn small" id="refresh">Обновить</button>
+      <button class="btn small" id="export">Выгрузить CSV</button>
+      <button class="btn small" id="logout">Выйти</button>
+    </div>
+  </div>
+
+  <main class="wrap" id="loginView" style="margin-top:24px">
+    <form class="card" id="loginForm">
+      <h2>Вход в реестр</h2>
+      <label for="password">Пароль</label>
+      <input id="password" type="password" autocomplete="current-password" required>
+      <button class="btn" type="submit" id="loginBtn">Войти</button>
+      <div class="error hidden" id="loginErr"></div>
+      <p class="hint">Первый вход после простоя может занять до минуты: бесплатный сервер просыпается.</p>
+    </form>
+  </main>
+
+  <main class="wrap wide hidden" id="registryView">
+    <div class="stats" id="stats"></div>
+
+    <section class="card">
+      <h2>Сверка с выгрузками кассы</h2>
+      <p class="hint" style="margin-top:0">CSV с колонками <code>fn;fd;fp</code>, для продаж ещё <code>qty</code> — число комбо в чеке. Заявки сопоставляются по фискальным реквизитам.</p>
+      <div class="filters" style="margin:0">
+        <select id="importKind">
+          <option value="sales">Продажи комбо → «покупка сверена»</option>
+          <option value="issued">Выдача машинок → «игрушка выдана»</option>
+          <option value="returns">Возвраты → снять с розыгрыша</option>
+        </select>
+        <label class="btn small secondary" style="text-align:center;font-weight:600">
+          Загрузить CSV<input type="file" id="importFile" accept=".csv,text/csv" class="hidden">
+        </label>
+      </div>
+      <div class="hint" id="importResult"></div>
+    </section>
+
+    <div class="filters">
+      <input type="search" id="q" placeholder="Поиск: телефон, № заявки, ФН/ФД/ФП, номер участника">
+      <select id="statusFilter">
+        <option value="">Все статусы</option>
+        <option value="pending">На проверке</option>
+        <option value="approved">Допущены</option>
+        <option value="rejected">Отклонены</option>
+        <option value="dup">Дубликаты чеков</option>
+      </select>
+    </div>
+
+    <div id="list"></div>
+
+    <section class="card">
+      <h2>Порядок проверки</h2>
+      <ul class="steps">
+        <li><b>Покупка была</b>: сверяем фискальные данные чека с выгрузкой продаж (позиция «Комбо Coca-Cola»).</li>
+        <li><b>Чек не отправлен повторно</b>: совпадение ФН + ФД + ФП помечается как дубликат, даже если фото обрезали или пересняли. Допустить один чек дважды система не даст. В спорных случаях просим оригинал или электронный чек.</li>
+        <li><b>Игрушка выдана</b>: сверяем чек с отметкой о выдаче на кассе.</li>
+        <li><b>Покупку не вернули</b>: перед розыгрышем загружаем выгрузку возвратов, такие заявки снимаются автоматически.</li>
+        <li>Номера участников выдаются при допуске, по одному на каждое комбо в чеке.</li>
+      </ul>
+    </section>
+  </main>
+
+  <div class="lightbox hidden" id="lightbox"><img alt="Фото чека"></div>
+
+  <script src="assets/api.js"></script>
+  <script src="assets/admin.js"></script>
+</body>
+</html>
