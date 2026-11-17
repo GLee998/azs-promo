@@ -47,7 +47,7 @@ cd backend && ADMIN_PASSWORD=demo ../.venv/bin/uvicorn app:app --port 8765
 ## Развёртывание
 
 1. **Фронтенд**: GitHub Pages (Settings → Pages → Source: GitHub Actions), публикуется workflow `.github/workflows/pages.yml`.
-2. **API**: на render.com → New → Blueprint → этот репозиторий. Render создаст сервис `azs-promo-api` и бесплатную базу. При создании спросит `ADMIN_PASSWORD` — пароль реестра.
+2. **API**: на render.com → New → Blueprint → этот репозиторий. Render создаст сервис `azs-promo-api` и бесплатную базу. Пароль реестра (`ADMIN_PASSWORD`) Render сгенерирует сам: Dashboard → azs-promo-api → Environment.
 3. Если Render выдал адрес, отличный от `https://azs-promo-api.onrender.com`, поменять `API_BASE` в `web/assets/api.js`.
 
 Ограничения бесплатного Render: сервер засыпает после 15 минут без запросов (первый запрос ~30–50 с), бесплатная база удаляется через 30 дней.
