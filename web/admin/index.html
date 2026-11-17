@@ -5,15 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
   <title>Реестр заявок</title>
-  <link rel="icon" href="img/truck.svg" type="image/svg+xml">
+  <link rel="icon" href="shared/img/truck.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=Russo+One&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="assets/style.css">
+  <link rel="stylesheet" href="shared/style.css">
 </head>
 <body>
   <div class="topbar">
-    <h1><img src="img/logo-white.svg" alt="Partner Neft">Реестр заявок</h1>
+    <h1><img src="shared/img/logo-white.svg" alt="Partner Neft">Админка</h1>
+    <nav class="admin-nav"><a href="./" aria-current="page">Реестр</a><a href="draw.html">Розыгрыш</a><a href="stand.html">QR для касс</a><a href="test-receipt.html">Тестовые чеки</a></nav>
     <div class="actions hidden" id="toolbar" style="margin:0">
       <button class="btn small" id="refresh">Обновить</button>
       <button class="btn small" id="export">Выгрузить CSV</button>
@@ -22,7 +23,7 @@
   </div>
 
   <main class="login" id="loginView">
-    <img src="img/truck.svg" alt="">
+    <img src="shared/img/truck.svg" alt="">
     <form class="panel" id="loginForm">
       <h2 style="margin-top:0">Вход для маркетинга</h2>
       <label for="password">Пароль</label>
@@ -78,7 +79,8 @@
 
   <div class="lightbox hidden" id="lightbox"><img alt="Фото чека"></div>
 
-  <script src="assets/api.js"></script>
-  <script src="assets/admin.js"></script>
+  <script src="shared/config.js"></script>
+  <script src="shared/api.js"></script>
+  <script src="admin.js"></script>
 </body>
 </html>

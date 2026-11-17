@@ -240,7 +240,7 @@ $('again').addEventListener('click', () => {
   } catch { forgetTicket(); }
 })();
 
-// Машинка на дороге-прогрессе (assets/fx.js). Без анимаций форма работает так же.
+// Машинка на дороге-прогрессе (fx.js). Без анимаций форма работает так же.
 function race(action) {
   if (typeof Race !== 'undefined') Race[action]();
 }

@@ -6,18 +6,18 @@
   <meta name="theme-color" content="#003A70">
   <title>Караван Новогодних Чудес: регистрация чека</title>
   <meta name="description" content="Partner Neft x Coca Cola. 2 френч-дога + 2 Coca Cola = машинка и шанс на поездку на новогоднем караване.">
-  <link rel="icon" href="img/truck.svg" type="image/svg+xml">
+  <link rel="icon" href="shared/img/truck.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=Russo+One&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="assets/style.css">
+  <link rel="stylesheet" href="shared/style.css">
 </head>
 <body>
   <header class="hero">
     <div class="snow" aria-hidden="true"></div>
     <div class="hero-inner">
       <div class="brandline">
-        <img class="logo" src="img/logo-white.svg" alt="Partner Neft">
+        <img class="logo" src="shared/img/logo-white.svg" alt="Partner Neft">
         <span class="demo-pill">Тестовая версия</span>
       </div>
 
@@ -31,20 +31,20 @@
       <div class="hero-art">
         <div class="equation" aria-label="2 френч-дога плюс 2 Coca Cola равно машинка">
           <div class="stack">
-            <img class="dog piece" src="img/frenchdog.svg" alt="">
-            <img class="dog piece" src="img/frenchdog.svg" alt="">
+            <img class="dog piece" src="shared/img/frenchdog.svg" alt="">
+            <img class="dog piece" src="shared/img/frenchdog.svg" alt="">
           </div>
           <span class="op piece">+</span>
           <div class="pair">
-            <img class="cup piece" src="img/cup.svg" alt="">
-            <img class="cup piece" src="img/cup.svg" alt="">
+            <img class="cup piece" src="shared/img/cup.svg" alt="">
+            <img class="cup piece" src="shared/img/cup.svg" alt="">
           </div>
           <span class="op piece">=</span>
-          <img class="car piece" id="heroCar" src="img/car.svg" alt="">
+          <img class="car piece" id="heroCar" src="shared/img/car.svg" alt="">
         </div>
       </div>
     </div>
-    <div class="caravan" aria-hidden="true"><img id="truck" src="img/truck.svg" alt=""></div>
+    <div class="caravan" aria-hidden="true"><img id="truck" src="shared/img/truck.svg" alt=""></div>
     <div class="hero-road" aria-hidden="true"></div>
   </header>
 
@@ -54,8 +54,8 @@
 
     <div class="road-wrap" id="roadWrap" aria-hidden="true">
       <div class="road">
-        <img class="flag" src="img/flag.svg" alt="">
-        <div class="racer" id="racer"><img src="img/car.svg" alt=""></div>
+        <img class="flag" src="shared/img/flag.svg" alt="">
+        <div class="racer" id="racer"><img src="shared/img/car.svg" alt=""></div>
       </div>
       <ol class="milestones" id="milestones">
         <li><span class="dot">1</span>Телефон</li>
@@ -105,7 +105,7 @@
     </section>
 
     <section class="panel ticket hidden" id="ticket" aria-live="polite">
-      <img class="finish-car" src="img/car.svg" alt="">
+      <img class="finish-car" src="shared/img/car.svg" alt="">
 
       <div id="stWaiting">
         <h2>Чек принят</h2>
@@ -142,18 +142,15 @@
 
   <footer class="site-footer">
     <a href="rules.html">Правила акции</a>
-    <a href="privacy.html">Политика обработки данных</a>
-    <a href="test-receipt.html">Тестовый чек</a>
-    <a href="stand.html">QR для кассы</a>
-    <a href="cashier.html">Касса</a>
-    <a href="admin.html">Реестр</a>
+    <a href="privacy.html">Политика обработки персональных данных</a>
   </footer>
 
   <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/gsap@3.13.0/dist/gsap.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
-  <script src="assets/api.js"></script>
-  <script src="assets/form.js"></script>
-  <script src="assets/fx.js"></script>
+  <script src="shared/config.js"></script>
+  <script src="shared/api.js"></script>
+  <script src="form.js"></script>
+  <script src="fx.js"></script>
 </body>
 </html>

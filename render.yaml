@@ -1,6 +1,6 @@
-# Render Blueprint: API + бесплатная база Postgres.
-# Развернуть: https://render.com/deploy?repo=https://github.com/GLee998/azs-promo
+# Render Blueprint: API, база и три отдельных сайта (клиент, касса, админка).
 services:
+  # API: только данные, страниц не отдаёт.
   - type: web
     name: azs-promo-web
     region: virginia
@@ -17,14 +17,54 @@ services:
         fromDatabase:
           name: azs-promo-db
           property: connectionString
-      # Пароль реестра генерирует Render: Dashboard → azs-promo-api → Environment.
+      # Пароли реестра и кассы генерирует Render: Dashboard → azs-promo-web → Environment.
       - key: ADMIN_PASSWORD
         generateValue: true
-      - key: ALLOWED_ORIGINS
-        value: https://glee998.github.io
-      # Пароль кассиров тоже генерирует Render.
       - key: CASHIER_PASSWORD
         generateValue: true
+      - key: SERVE_WEB
+        value: "false"
+      - key: DRAW_RESET_ALLOWED
+        value: "true"
+      - key: ALLOWED_ORIGINS
+        value: https://karavan-client.onrender.com,https://karavan-kassa.onrender.com,https://karavan-admin.onrender.com
+
+  - type: web
+    name: karavan-client
+    runtime: static
+    buildCommand: ./build.sh client
+    staticPublishPath: dist/client
+    envVars:
+      - key: API_URL
+        value: https://azs-promo-web.onrender.com
+
+  - type: web
+    name: karavan-kassa
+    runtime: static
+    buildCommand: ./build.sh kassa
+    staticPublishPath: dist/kassa
+    headers:
+      - path: /*
+        name: X-Robots-Tag
+        value: noindex
+    envVars:
+      - key: API_URL
+        value: https://azs-promo-web.onrender.com
+
+  - type: web
+    name: karavan-admin
+    runtime: static
+    buildCommand: ./build.sh admin
+    staticPublishPath: dist/admin
+    headers:
+      - path: /*
+        name: X-Robots-Tag
+        value: noindex
+    envVars:
+      - key: API_URL
+        value: https://azs-promo-web.onrender.com
+      - key: CLIENT_URL
+        value: https://karavan-client.onrender.com/
 
 databases:
   - name: azs-promo-db

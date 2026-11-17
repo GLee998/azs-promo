@@ -6,6 +6,7 @@
 """
 
 import csv
+import hashlib
 import io
 import os
 import random
@@ -50,6 +51,11 @@ SMS_RESEND = timedelta(seconds=30)
 SMS_MAX_ATTEMPTS = 5
 # Заявка, по которой машинку так и не выдали, перестаёт держать номер и чек.
 WAITING_TTL = timedelta(hours=int(os.getenv("WAITING_TTL_HOURS", "3")))
+DRAW_PRIZES = int(os.getenv("DRAW_PRIZES", "8"))  # 8 поездок на новогоднем караване
+# Сброс розыгрыша нужен только на тестовом стенде, в проде он выключен.
+DRAW_RESET_ALLOWED = os.getenv("DRAW_RESET_ALLOWED", "false").lower() == "true"
+# Локально сервер отдаёт и три сайта (клиент, касса, админка). В проде они живут на отдельных адресах.
+SERVE_WEB = os.getenv("SERVE_WEB", "true").lower() == "true"
 
 engine = create_engine(_db_url(), pool_pre_ping=True)
 
@@ -151,6 +157,34 @@ class Entry(Base):
     @property
     def number(self) -> str:
         return f"KN-{self.id:05d}"
+
+
+class Draw(Base):
+    """Розыгрыш. Хранит снимок списка участников и его хеш, чтобы результат можно было проверить."""
+    __tablename__ = "draws"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    only_checked: Mapped[bool] = mapped_column(Boolean, default=True)
+    entries_count: Mapped[int] = mapped_column()
+    entries_hash: Mapped[str] = mapped_column(String(64))
+    entries_snapshot: Mapped[str] = mapped_column(Text)  # номера участников через перевод строки
+    winners: Mapped[list["DrawWinner"]] = relationship(
+        back_populates="draw", cascade="all, delete-orphan", order_by="DrawWinner.id")
+
+
+class DrawWinner(Base):
+    __tablename__ = "draw_winners"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    draw_id: Mapped[int] = mapped_column(ForeignKey("draws.id"))
+    place: Mapped[int] = mapped_column()
+    registration_id: Mapped[int] = mapped_column(ForeignKey("registrations.id"))
+    entry_number: Mapped[str] = mapped_column(String(16))
+    picked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    replaced_reason: Mapped[str | None] = mapped_column(Text)  # заполнено, если победителя переиграли
+    draw: Mapped[Draw] = relationship(back_populates="winners")
+    registration: Mapped[Registration] = relationship()
 
 
 class SmsCode(Base):
@@ -640,7 +674,125 @@ def export_csv(db: Session = Depends(get_db)):
                     headers={"Content-Disposition": 'attachment; filename="registry.csv"'})
 
 
-# Тот же сервер отдаёт и фронтенд, чтобы всё работало по одной ссылке.
+# ---------- розыгрыш ----------
+
+def eligible(db: Session, only_checked: bool) -> list[Registration]:
+    """Участники: машинка выдана, возврата не было; при only_checked — покупка сверена с продажами."""
+    q = select(Registration).where(Registration.status == "issued", Registration.returned.is_(False))
+    if only_checked:
+        q = q.where(Registration.check_purchase.is_(True))
+    return [r for r in db.scalars(q) if r.entry]
+
+
+def draw_view(d: Draw) -> dict:
+    return {
+        "id": d.id,
+        "created_at": as_utc(d.created_at).isoformat(),
+        "only_checked": d.only_checked,
+        "entries_count": d.entries_count,
+        "entries_hash": d.entries_hash,
+        "winners": [{
+            "id": w.id,
+            "place": w.place,
+            "entry": w.entry_number,
+            "code": w.registration.code,
+            "phone": w.registration.phone,
+            "station": w.registration.issued_station,
+            "picked_at": as_utc(w.picked_at).isoformat(),
+            "replaced_reason": w.replaced_reason,
+        } for w in d.winners],
+    }
+
+
+def current_draw(db: Session) -> Draw | None:
+    return db.scalar(select(Draw).order_by(Draw.id.desc()).limit(1))
+
+
+@app.get("/api/admin/draw", dependencies=[Depends(require_admin)])
+def get_draw(only_checked: bool = True, db: Session = Depends(get_db)):
+    d = current_draw(db)
+    return {
+        "prizes": DRAW_PRIZES,
+        "reset_allowed": DRAW_RESET_ALLOWED,
+        "eligible": len(eligible(db, only_checked)),
+        "eligible_all": len(eligible(db, False)),
+        "draw": draw_view(d) if d else None,
+    }
+
+
+class DrawBody(BaseModel):
+    only_checked: bool = True
+
+
+@app.post("/api/admin/draw", dependencies=[Depends(require_admin)])
+def run_draw(body: DrawBody, db: Session = Depends(get_db)):
+    if current_draw(db):
+        raise HTTPException(400, "Розыгрыш уже проведён. Победителя можно только переиграть.")
+    pool = sorted(eligible(db, body.only_checked), key=lambda r: r.entry.id)
+    if len(pool) < DRAW_PRIZES:
+        raise HTTPException(400, f"Недостаточно участников: {len(pool)}, а призов {DRAW_PRIZES}")
+    snapshot = "\n".join(r.entry.number for r in pool)
+    # Криптографически стойкий генератор: результат нельзя предсказать или подогнать.
+    picked = secrets.SystemRandom().sample(pool, DRAW_PRIZES)
+    d = Draw(only_checked=body.only_checked, entries_count=len(pool),
+             entries_hash=hashlib.sha256(snapshot.encode()).hexdigest(), entries_snapshot=snapshot)
+    d.winners = [DrawWinner(place=i + 1, registration_id=r.id, entry_number=r.entry.number)
+                 for i, r in enumerate(picked)]
+    db.add(d)
+    db.commit()
+    return draw_view(d)
+
+
+@app.post("/api/admin/draw/winners/{winner_id}/redraw", dependencies=[Depends(require_admin)])
+def redraw_winner(winner_id: int, body: ReasonBody, db: Session = Depends(get_db)):
+    """Переигрываем одно место: например, победитель не вышел на связь или снят с розыгрыша."""
+    w = db.get(DrawWinner, winner_id)
+    if not w or w.replaced_reason:
+        raise HTTPException(404, "Победитель не найден или уже переигран")
+    reason = body.reason.strip()
+    if not reason:
+        raise HTTPException(400, "Укажите причину, по которой переигрываете место")
+    d = w.draw
+    taken = {x.registration_id for x in d.winners}
+    snapshot = set(d.entries_snapshot.split("\n"))
+    pool = [r for r in eligible(db, d.only_checked) if r.id not in taken and r.entry.number in snapshot]
+    if not pool:
+        raise HTTPException(400, "Не осталось участников для переигрывания")
+    r = secrets.SystemRandom().choice(pool)
+    w.replaced_reason = reason
+    d.winners.append(DrawWinner(place=w.place, registration_id=r.id, entry_number=r.entry.number))
+    db.commit()
+    return draw_view(d)
+
+
+@app.get("/api/admin/draw/entries.txt", dependencies=[Depends(require_admin)])
+def draw_entries(db: Session = Depends(get_db)):
+    """Список участников на момент розыгрыша. SHA-256 этого файла совпадает с хешем розыгрыша."""
+    d = current_draw(db)
+    if not d:
+        raise HTTPException(404, "Розыгрыш ещё не проведён")
+    return Response(d.entries_snapshot, media_type="text/plain; charset=utf-8",
+                    headers={"Content-Disposition": 'attachment; filename="draw-entries.txt"'})
+
+
+@app.delete("/api/admin/draw", dependencies=[Depends(require_admin)])
+def reset_draw(db: Session = Depends(get_db)):
+    if not DRAW_RESET_ALLOWED:
+        raise HTTPException(403, "Сброс розыгрыша отключён")
+    d = current_draw(db)
+    if d:
+        db.delete(d)
+        db.commit()
+    return {"ok": True}
+
+
+# Локально тот же сервер отдаёт три сайта: клиент на /, касса на /kassa/, админка на /admin/.
+# В проде это отдельные статические сайты на своих адресах (см. build.sh и render.yaml).
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
-if WEB_DIR.is_dir():
-    app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")
+if SERVE_WEB and WEB_DIR.is_dir():
+    shared = StaticFiles(directory=WEB_DIR / "shared")
+    for prefix in ("/kassa", "/admin"):
+        app.mount(f"{prefix}/shared", shared)
+        app.mount(prefix, StaticFiles(directory=WEB_DIR / prefix.strip("/"), html=True))
+    app.mount("/shared", shared)
+    app.mount("/", StaticFiles(directory=WEB_DIR / "client", html=True))

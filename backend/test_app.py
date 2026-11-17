@@ -128,6 +128,37 @@ def test_flow():
     assert "снята с розыгрыша" in csv_text and "Номер участника" in csv_text
 
 
+def test_draw():
+    """8 разных победителей из выданных, повторный розыгрыш запрещён, переигрывание даёт нового победителя."""
+    import hashlib
+    backend.engine = backend.create_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
+    backend.Base.metadata.create_all(backend.engine)
+    for i in range(12):
+        r = register(f"+996 555 00{i:04d}"[:16], fn="100", fd=str(i), fm="7")
+        item = queue()[r.json()["code"]]
+        client.post(f"/api/cashier/registrations/{item['id']}/issue", headers=KASSA, json={"station": "1"})
+
+    info = client.get("/api/admin/draw?only_checked=false", headers=ADMIN).json()
+    assert info["eligible"] == 12 and info["draw"] is None
+    # Покупки не сверены — со строгим условием участников нет
+    assert client.post("/api/admin/draw", headers=ADMIN, json={"only_checked": True}).status_code == 400
+
+    d = client.post("/api/admin/draw", headers=ADMIN, json={"only_checked": False}).json()
+    entries = {w["entry"] for w in d["winners"]}
+    assert len(d["winners"]) == 8 and len(entries) == 8
+    assert client.post("/api/admin/draw", headers=ADMIN, json={"only_checked": False}).status_code == 400
+
+    snapshot = client.get("/api/admin/draw/entries.txt", headers=ADMIN).text
+    assert hashlib.sha256(snapshot.encode()).hexdigest() == d["entries_hash"]
+
+    first = d["winners"][0]
+    assert client.post(f"/api/admin/draw/winners/{first['id']}/redraw", headers=ADMIN, json={"reason": ""}).status_code == 400
+    d2 = client.post(f"/api/admin/draw/winners/{first['id']}/redraw", headers=ADMIN, json={"reason": "не на связи"}).json()
+    new = [w for w in d2["winners"] if w["place"] == first["place"] and not w["replaced_reason"]][0]
+    assert new["entry"] not in entries
+    assert client.delete("/api/admin/draw", headers=ADMIN).status_code == 403  # в проде сброса нет
+
+
 def test_parallel_same_receipt():
     """Один чек одновременно с двух АЗС: пройдёт ровно одна регистрация.
 
@@ -152,5 +183,6 @@ def test_parallel_same_receipt():
 
 if __name__ == "__main__":
     test_flow()
+    test_draw()
     test_parallel_same_receipt()
     print("OK")

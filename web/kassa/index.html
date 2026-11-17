@@ -5,22 +5,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
   <title>Касса: выдача машинок</title>
-  <link rel="icon" href="img/truck.svg" type="image/svg+xml">
+  <link rel="icon" href="shared/img/truck.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=Russo+One&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="assets/style.css">
+  <link rel="stylesheet" href="shared/style.css">
 </head>
 <body>
   <div class="topbar">
-    <h1><img src="img/logo-white.svg" alt="Partner Neft">Касса</h1>
+    <h1><img src="shared/img/logo-white.svg" alt="Partner Neft">Касса</h1>
     <div class="actions hidden" id="toolbar" style="margin:0">
       <button class="btn small" id="logout">Выйти</button>
     </div>
   </div>
 
   <main class="login" id="loginView">
-    <img src="img/truck.svg" alt="">
+    <img src="shared/img/truck.svg" alt="">
     <form class="panel" id="loginForm">
       <h2 style="margin-top:0">Вход для кассира</h2>
       <label for="password">Пароль кассы</label>
@@ -47,7 +47,8 @@
   <div class="lightbox hidden" id="lightbox"><img alt="Фото чека"></div>
   <div class="toast hidden" id="toast" role="status"></div>
 
-  <script src="assets/api.js"></script>
-  <script src="assets/cashier.js"></script>
+  <script src="shared/config.js"></script>
+  <script src="shared/api.js"></script>
+  <script src="kassa.js"></script>
 </body>
 </html>

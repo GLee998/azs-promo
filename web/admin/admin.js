@@ -106,7 +106,7 @@ function matches(a) {
 function render() {
   const list = items.filter(matches);
   if (!list.length) {
-    $('list').innerHTML = `<div class="card empty"><img src="img/truck.svg" alt="">${items.length
+    $('list').innerHTML = `<div class="card empty"><img src="shared/img/truck.svg" alt="">${items.length
       ? 'Под фильтр ничего не подходит. Сбросьте поиск или статус.'
       : 'Регистраций пока нет. Они появятся здесь, как только клиенты отсканируют QR на кассе.'}</div>`;
     return;

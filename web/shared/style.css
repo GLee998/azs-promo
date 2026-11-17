@@ -370,6 +370,11 @@ input::placeholder { color: #8BA3B6; }
 .login .panel { text-align: left; }
 .login > img { width: 220px; margin-bottom: 8px; }
 
+.admin-nav { display: flex; flex-wrap: wrap; gap: 4px; }
+.admin-nav a { color: #CFE6F7; text-decoration: none; font-weight: 600; font-size: 15px; padding: 8px 12px; border-radius: var(--r-sm); }
+.admin-nav a:hover { background: var(--night-2); color: var(--white); }
+.admin-nav a[aria-current="page"] { background: var(--white); color: var(--night); }
+
 /* касса */
 .kassa-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; margin-bottom: 14px; }
 .kassa-bar .station { display: flex; gap: 8px; align-items: center; font-weight: 600; }
@@ -425,3 +430,33 @@ input::placeholder { color: #8BA3B6; }
 /* документы */
 .doc { max-width: 720px; margin: 32px auto; padding: 0 16px; }
 .doc .panel h1 { font-size: 28px; margin-top: 0; }
+
+/* ---------- розыгрыш ---------- */
+.draw-stage { position: relative; overflow: hidden; color: var(--white); padding: 36px 0 0;
+  background: radial-gradient(120% 90% at 85% 0%, var(--night-2) 0%, var(--night) 60%); }
+.draw-inner { position: relative; margin-top: 0; padding-bottom: 36px; }
+.draw-title { font-size: clamp(28px, 6vw, 48px); line-height: 1.05; margin: 0 0 14px; max-width: 18em; }
+.draw-lead { color: #E6F2FB; max-width: 36em; margin: 0 0 18px; }
+.draw-toggle { color: var(--white); }
+.draw-count { font-size: 18px; margin: 16px 0 0; }
+.draw-count b { font: 400 28px/1 var(--display); color: var(--pink-light); margin-left: 6px; }
+.slots { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+.slot { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: var(--r-md);
+  background: rgba(255,255,255,.08); box-shadow: inset 0 0 0 1.5px rgba(255,255,255,.15); transition: background .3s, box-shadow .3s; }
+.slot-place { width: 36px; height: 36px; flex: none; border-radius: 10px; display: flex; align-items: center; justify-content: center;
+  font: 400 18px/1 var(--display); background: var(--night-2); }
+.slot .plate { margin: 0; box-shadow: none; }
+.slot .plate .num { min-width: 7.2ch; text-align: center; font-variant-numeric: tabular-nums; }
+.slot.landed { background: rgba(255,255,255,.14); box-shadow: inset 0 0 0 2px var(--pink-light); }
+.slot.landed .slot-place { background: var(--pink); }
+
+table.winners { width: 100%; border-collapse: collapse; font-size: 15px; }
+.winners th { text-align: left; font-weight: 600; color: var(--muted); font-size: 13px; padding: 8px; border-bottom: 2px solid var(--line); }
+.winners td { padding: 10px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.winners tr.replaced td { color: var(--muted); text-decoration: line-through; }
+.winners tr.replaced td:last-child { text-decoration: none; }
+#winners { overflow-x: auto; }
+.audit-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 12px; }
+.audit-grid div { display: grid; gap: 2px; }
+.audit-grid .hash { grid-column: 1 / -1; }
+.audit-grid code { font-size: 13px; word-break: break-all; background: var(--ice); padding: 8px 10px; border-radius: var(--r-sm); }
