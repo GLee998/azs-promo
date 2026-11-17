@@ -27,7 +27,7 @@ services:
       - key: DRAW_RESET_ALLOWED
         value: "true"
       - key: ALLOWED_ORIGINS
-        value: https://karavan-client.onrender.com,https://karavan-kassa.onrender.com,https://karavan-admin.onrender.com
+        value: https://karavan-client.onrender.com,https://karavan-kassa.onrender.com,https://karavan-admin-ezbb.onrender.com
 
   - type: web
     name: karavan-client
