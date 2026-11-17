@@ -12,18 +12,14 @@
   <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
-  <div class="topbar"><h1><img src="img/car.svg" alt="">Тестовые чеки</h1><a class="btn small" href="./">К форме</a></div>
+  <div class="topbar"><h1><img src="img/logo-white.svg" alt="Partner Neft">Тестовые чеки</h1><a class="btn small" href="./">К регистрации</a></div>
   <main class="wrap wide" style="max-width:720px">
     <p class="notice">Страница для демонстрации без настоящей кассы. Она создаёт образец с QR-кодом в формате кассового чека
-      и выгрузки «продажи» и «выдачи» для сверки в реестре. Это не фискальный документ.</p>
+      и выгрузки «продажи» и «возвраты» для сверки в реестре. Это не фискальный документ.</p>
 
     <section class="card">
       <h2>1. Создайте чек</h2>
       <div class="row">
-        <select id="combos">
-          <option value="1">1 комбо</option>
-          <option value="2">2 комбо</option>
-        </select>
         <button class="btn small" id="gen">Создать тестовый чек</button>
       </div>
       <p class="hint">Сфотографируйте чек с экрана телефоном или сохраните картинку и загрузите её в форму.</p>
@@ -36,7 +32,6 @@
       <p class="hint" style="margin-top:0">Созданных чеков: <b id="count">0</b>. Загрузите файлы в реестре в блоке «Сверка с выгрузками кассы».</p>
       <div class="actions">
         <button class="btn small" id="dlSales">Продажи CSV</button>
-        <button class="btn small" id="dlIssued">Выдачи машинок CSV</button>
         <button class="btn small secondary" id="dlReturns">Возврат последнего чека CSV</button>
         <button class="btn small secondary" id="reset">Очистить список</button>
       </div>
@@ -64,7 +59,7 @@
       $('receipt').innerHTML = `
         <div class="stamp">ТЕСТОВЫЙ ОБРАЗЕЦ</div>
         <div style="text-align:center">АЗС · ДЕМО<br>Кассовый чек · Приход</div><hr>
-        <div class="line"><span>Комбо Coca-Cola × ${r.qty}</span><span>${r.sum} сом</span></div>
+        <div class="line"><span>Комбо «Караван новогодних чудес»</span><span>${r.sum} сом</span></div>
         <div class="line"><b>ИТОГО</b><b>${r.sum} сом</b></div><hr>
         <div>ФН ${r.fn}</div><div>ФД ${r.fd}</div><div>ФМ ${r.fp}</div>
         <div id="rqr">${qr.createSvgTag({ cellSize: 5, margin: 4, scalable: false })}</div>`;
@@ -76,7 +71,7 @@
     function updateCount() { $('count').textContent = receipts.length; }
 
     $('gen').onclick = () => {
-      const qty = Number($('combos').value);
+      const qty = 1;
       const d = new Date();
       const p = v => String(v).padStart(2, '0');
       const r = {
@@ -107,11 +102,10 @@
       a.click();
     }
 
-    $('dlSales').onclick = () => download('sales.csv', ['fn;fd;fp;qty', ...receipts.map(r => `${r.fn};${r.fd};${r.fp};${r.qty}`)]);
-    $('dlIssued').onclick = () => download('issued.csv', ['fn;fd;fp', ...receipts.map(r => `${r.fn};${r.fd};${r.fp}`)]);
+    $('dlSales').onclick = () => download('sales.csv', ['fn;fd;fm', ...receipts.map(r => `${r.fn};${r.fd};${r.fp}`)]);
     $('dlReturns').onclick = () => {
       const r = receipts[receipts.length - 1];
-      download('returns.csv', ['fn;fd;fp', ...(r ? [`${r.fn};${r.fd};${r.fp}`] : [])]);
+      download('returns.csv', ['fn;fd;fm', ...(r ? [`${r.fn};${r.fd};${r.fp}`] : [])]);
     };
     $('reset').onclick = () => { receipts = []; persist(); updateCount(); $('receipt').classList.add('hidden'); $('savePng').classList.add('hidden'); };
 

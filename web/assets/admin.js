@@ -1,7 +1,7 @@
 // Закрытый реестр маркетинга.
 
 const $ = id => document.getElementById(id);
-const TOKEN_KEY = 'promo_admin_token';
+const TOKEN_KEY = 'karavan_admin_token';
 let token = null;
 let items = [];
 const photoUrls = new Map();
@@ -14,10 +14,13 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 const STATUS = {
-  pending: ['На проверке', 'pending'],
-  approved: ['Допущена', 'approved'],
-  rejected: ['Отклонена', 'rejected'],
+  waiting: 'Ждёт выдачи',
+  issued: 'Машинка выдана',
+  cancelled: 'Отменена',
+  disqualified: 'Снята с розыгрыша',
 };
+
+const plate = n => `<span class="plate sm"><span class="num">${esc(n)}</span><span class="reg"><i></i><span>KG</span></span></span>`;
 
 function adminApi(path, opts = {}) {
   return api(path, { ...opts, token }).catch(err => {
@@ -69,7 +72,7 @@ $('refresh').addEventListener('click', () => load());
 
 async function load() {
   try {
-    const r = await adminApi('/api/admin/applications');
+    const r = await adminApi('/api/admin/registrations');
     items = r.items;
     renderStats(r.stats);
     render();
@@ -80,12 +83,12 @@ async function load() {
 
 function renderStats(s) {
   const tiles = [
-    [s.total, 'всего заявок'],
-    [s.pending, 'на проверке'],
-    [s.approved, 'допущено'],
-    [s.rejected, 'отклонено'],
-    [s.duplicates, 'дубликатов чеков'],
-    [s.participants, 'номеров участников'],
+    [s.total, 'всего регистраций'],
+    [s.waiting, 'ждут выдачи'],
+    [s.unchecked, 'выдано, покупка не сверена'],
+    [s.cancelled, 'отменено'],
+    [s.disqualified, 'снято с розыгрыша'],
+    [s.issued, 'участников розыгрыша'],
   ];
   $('stats').innerHTML = tiles.map(([n, t], i) =>
     `<div class="stat${i === tiles.length - 1 ? ' accent' : ''}"><b>${n}</b><span>${t}</span></div>`).join('');
@@ -93,19 +96,19 @@ function renderStats(s) {
 
 function matches(a) {
   const f = $('statusFilter').value;
-  if (f === 'dup' && !a.duplicate_of) return false;
-  if (f && f !== 'dup' && a.status !== f) return false;
-  const q = $('q').value.trim().toLowerCase();
+  if (f === 'unchecked' && !(a.status === 'issued' && !a.check_purchase)) return false;
+  if (f && f !== 'unchecked' && a.status !== f) return false;
+  const q = $('q').value.trim().toLowerCase().replace(/\s/g, '');
   if (!q) return true;
-  return [a.code, a.phone, a.fn, a.fd, a.fp, ...a.numbers].some(v => v && v.toLowerCase().includes(q));
+  return [a.code, a.phone, a.fn, a.fd, a.fm, a.entry].some(v => v && v.toLowerCase().replace(/\s/g, '').includes(q));
 }
 
 function render() {
   const list = items.filter(matches);
   if (!list.length) {
-    $('list').innerHTML = `<div class="card empty"><img src="img/car.svg" alt="">${items.length
+    $('list').innerHTML = `<div class="card empty"><img src="img/truck.svg" alt="">${items.length
       ? 'Под фильтр ничего не подходит. Сбросьте поиск или статус.'
-      : 'Заявок пока нет. Они появятся здесь, как только клиенты отправят чеки.'}</div>`;
+      : 'Регистраций пока нет. Они появятся здесь, как только клиенты отсканируют QR на кассе.'}</div>`;
     return;
   }
   $('list').innerHTML = list.map(card).join('');
@@ -113,46 +116,34 @@ function render() {
 }
 
 function card(a) {
-  const [label, cls] = STATUS[a.status];
   const date = new Date(a.created_at).toLocaleString('ru-RU');
-  const locked = a.status === 'approved' ? 'disabled' : '';
-  const src = a.fiscal_source === 'qr' ? 'из QR' : a.fiscal_source === 'manual' ? 'вручную' : '';
+  const issued = a.issued_at ? new Date(a.issued_at).toLocaleString('ru-RU') : null;
+  const src = a.fiscal_source === 'qr' ? 'из QR' : a.fiscal_source === 'cashier' ? 'введены кассиром' : '';
   return `
   <article class="card app" data-id="${a.id}">
     <div><img data-photo="${a.id}" alt="Фото чека"></div>
     <div>
-      <h3>${esc(a.code)} <span class="tag ${cls}">${label}</span>
-        ${a.duplicate_of ? `<span class="tag dup">Дубликат чека из ${esc(a.duplicate_of)}</span>` : ''}
-        ${a.returned ? '<span class="tag rejected">Возврат</span>' : ''}</h3>
-      <div class="meta"><span>${date}</span><span>${esc(a.phone)} ${a.phone_verified ? '✓ подтверждён' : '(не подтверждён)'}</span>${a.receipt_sum ? `<span>сумма ${esc(a.receipt_sum)} сом</span>` : ''}</div>
-      ${a.reject_reason ? `<div class="meta">Причина: ${esc(a.reject_reason)}</div>` : ''}
-
-      <div class="fiscal">
-        <div><label>ФН</label><input data-f="fn" value="${esc(a.fn)}" ${locked} inputmode="numeric"></div>
-        <div><label>ФД</label><input data-f="fd" value="${esc(a.fd)}" ${locked} inputmode="numeric"></div>
-        <div><label>ФМ</label><input data-f="fp" value="${esc(a.fp)}" ${locked} inputmode="numeric"></div>
-        <div><label>Комбо в чеке</label><input data-f="combos" type="number" min="1" max="20" value="${a.combos}" ${locked}></div>
-      </div>
-      ${src ? `<div class="meta">Реквизиты ${src}</div>` : '<div class="meta">QR не распознан: впишите ФН, ФД, ФМ с фото чека</div>'}
+      <h3>${plate(a.code)} <span class="tag ${a.status}">${STATUS[a.status]}</span>
+        ${a.entry ? `<span class="tag pink">${esc(a.entry)}</span>` : ''}
+        ${a.returned ? '<span class="tag disqualified">Возврат</span>' : ''}</h3>
+      <div class="meta"><span>${date}</span><span>${esc(a.phone)}</span>${a.station ? `<span>QR АЗС №${esc(a.station)}</span>` : ''}${a.receipt_sum ? `<span>${esc(a.receipt_sum)} сом</span>` : ''}</div>
+      ${issued ? `<div class="meta">Выдано ${issued}${a.issued_station ? ` на АЗС №${esc(a.issued_station)}` : ''}</div>` : ''}
+      ${a.reason ? `<div class="meta">Причина: ${esc(a.reason)}</div>` : ''}
+      <div class="fiscal-read">${a.fn ? `Чек: ФН ${esc(a.fn)}, ФД ${esc(a.fd)}, ФМ ${esc(a.fm)}${src ? ` (${src})` : ''}` : 'Реквизиты чека ещё не введены'}</div>
 
       <div class="checks">
         <label><input type="checkbox" data-c="check_purchase" ${a.check_purchase ? 'checked' : ''}> Покупка сверена с продажами</label>
-        <label><input type="checkbox" data-c="check_issued" ${a.check_issued ? 'checked' : ''}> Игрушка выдана по чеку</label>
         <label><input type="checkbox" data-c="returned" ${a.returned ? 'checked' : ''}> Был возврат</label>
       </div>
 
       <div class="actions">
-        ${a.status !== 'approved' ? '<button class="btn small" data-act="approve">Допустить</button>' : ''}
-        ${a.status !== 'rejected' ? '<button class="btn small secondary" data-act="reject">Отклонить</button>' : ''}
-        ${a.status !== 'pending' ? '<button class="btn small secondary" data-act="reset">Вернуть на проверку</button>' : ''}
-        ${a.numbers.length ? `<span class="numbers">${a.numbers.map(plate).join('')}</span>` : ''}
+        ${a.status === 'issued' ? '<button class="btn small secondary" data-act="disqualify">Снять с розыгрыша</button>' : ''}
+        ${a.status === 'disqualified' ? '<button class="btn small secondary" data-act="restore">Вернуть в розыгрыш</button>' : ''}
       </div>
       <div class="error hidden" data-err></div>
     </div>
   </article>`;
 }
-
-const plate = n => `<span class="plate sm"><span class="num">${esc(n)}</span><span class="reg"><i></i><span>KG</span></span></span>`;
 
 // Фото закрыто паролем, поэтому грузим его через fetch с заголовком авторизации.
 async function loadPhoto(id) {
@@ -160,16 +151,11 @@ async function loadPhoto(id) {
   if (!img) return;
   if (!photoUrls.has(id)) {
     try {
-      const res = await adminApi(`/api/admin/applications/${id}/photo`, { raw: true });
+      const res = await adminApi(`/api/admin/registrations/${id}/photo`, { raw: true });
       photoUrls.set(id, URL.createObjectURL(await res.blob()));
     } catch { return; }
   }
   img.src = photoUrls.get(id);
-}
-
-function replaceItem(updated) {
-  const i = items.findIndex(a => a.id === updated.id);
-  if (i >= 0) items[i] = updated;
 }
 
 async function act(el, fn) {
@@ -177,8 +163,7 @@ async function act(el, fn) {
   const errEl = cardEl.querySelector('[data-err]');
   show(errEl, false);
   try {
-    replaceItem(await fn(cardEl.dataset.id));
-    // Дубликаты и статистика зависят от других заявок: перечитываем список целиком.
+    await fn(cardEl.dataset.id);
     await load();
   } catch (err) {
     errEl.textContent = err.message;
@@ -188,11 +173,8 @@ async function act(el, fn) {
 
 $('list').addEventListener('change', e => {
   const el = e.target;
-  if (el.dataset.f) {
-    const value = el.dataset.f === 'combos' ? Number(el.value) : el.value;
-    act(el, id => adminApi(`/api/admin/applications/${id}`, { method: 'PATCH', json: { [el.dataset.f]: value } }));
-  } else if (el.dataset.c) {
-    act(el, id => adminApi(`/api/admin/applications/${id}`, { method: 'PATCH', json: { [el.dataset.c]: el.checked } }));
+  if (el.dataset.c) {
+    act(el, id => adminApi(`/api/admin/registrations/${id}`, { method: 'PATCH', json: { [el.dataset.c]: el.checked } }));
   }
 });
 
@@ -204,13 +186,12 @@ $('list').addEventListener('click', e => {
     return;
   }
   const action = el.dataset.act;
-  if (!action) return;
-  if (action === 'reject') {
-    const reason = prompt('Причина отклонения', 'Не прошла проверку');
+  if (action === 'disqualify') {
+    const reason = prompt('Причина снятия с розыгрыша', 'Покупка не подтверждена выгрузкой продаж');
     if (reason === null) return;
-    act(el, id => adminApi(`/api/admin/applications/${id}/reject`, { method: 'POST', json: { reason } }));
-  } else {
-    act(el, id => adminApi(`/api/admin/applications/${id}/${action}`, { method: 'POST' }));
+    act(el, id => adminApi(`/api/admin/registrations/${id}/disqualify`, { method: 'POST', json: { reason } }));
+  } else if (action === 'restore') {
+    act(el, id => adminApi(`/api/admin/registrations/${id}/restore`, { method: 'POST' }));
   }
 });
 
@@ -228,7 +209,7 @@ $('importFile').addEventListener('change', async e => {
   $('importResult').textContent = 'Загружаем…';
   try {
     const r = await adminApi(`/api/admin/import/${$('importKind').value}`, { method: 'POST', form: fd });
-    $('importResult').textContent = `Строк в файле: ${r.rows}, совпало с заявками: ${r.matched}.`;
+    $('importResult').textContent = `Строк в файле: ${r.rows}, совпало с регистрациями: ${r.matched}.`;
     load();
   } catch (err) {
     $('importResult').textContent = err.message;

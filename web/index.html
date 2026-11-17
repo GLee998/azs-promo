@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#E4002B">
-  <title>Комбо с машинкой: регистрация чека</title>
-  <meta name="description" content="Купите 2 Coca-Cola и 2 френч-дога, получите машинку и зарегистрируйте чек для участия в розыгрыше.">
-  <link rel="icon" href="img/car.svg" type="image/svg+xml">
+  <meta name="theme-color" content="#003A70">
+  <title>Караван Новогодних Чудес: регистрация чека</title>
+  <meta name="description" content="Partner Neft x Coca Cola. 2 френч-дога + 2 Coca Cola = машинка и шанс на поездку на новогоднем караване.">
+  <link rel="icon" href="img/truck.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=Russo+One&display=swap" rel="stylesheet">
@@ -14,38 +14,43 @@
 </head>
 <body>
   <header class="hero">
+    <div class="snow" aria-hidden="true"></div>
     <div class="hero-inner">
       <div class="brandline">
-        <span>Акция на АЗС</span>
+        <img class="logo" src="img/logo-white.svg" alt="Partner Neft">
         <span class="demo-pill">Тестовая версия</span>
       </div>
 
-      <div>
-        <h1 class="reveal">Комбо с&nbsp;машинкой</h1>
-        <p class="lead reveal">Купите 2 Coca-Cola и 2 френч-дога, заберите игрушечную машинку на кассе и зарегистрируйте чек. Среди участников разыграем призы.</p>
+      <div class="hero-text">
+        <p class="partners reveal">Partner Neft <span class="x">x</span> Coca Cola</p>
+        <h1 class="reveal">Караван Новогодних Чудес</h1>
+        <p class="lead reveal">2 френч-дога + 2 Coca Cola = машинка и шанс на поездку!</p>
         <a class="btn go reveal" href="#register">Зарегистрировать чек</a>
       </div>
 
-      <div class="equation" aria-label="2 Coca-Cola плюс 2 френч-дога равно машинка">
-        <div class="pair">
-          <img class="cup piece" src="img/cup.svg" alt="">
-          <img class="cup piece" src="img/cup.svg" alt="">
+      <div class="hero-art">
+        <div class="equation" aria-label="2 френч-дога плюс 2 Coca Cola равно машинка">
+          <div class="stack">
+            <img class="dog piece" src="img/frenchdog.svg" alt="">
+            <img class="dog piece" src="img/frenchdog.svg" alt="">
+          </div>
+          <span class="op piece">+</span>
+          <div class="pair">
+            <img class="cup piece" src="img/cup.svg" alt="">
+            <img class="cup piece" src="img/cup.svg" alt="">
+          </div>
+          <span class="op piece">=</span>
+          <img class="car piece" id="heroCar" src="img/car.svg" alt="">
         </div>
-        <span class="op piece">+</span>
-        <div class="stack">
-          <img class="dog piece" src="img/frenchdog.svg" alt="">
-          <img class="dog piece" src="img/frenchdog.svg" alt="">
-        </div>
-        <span class="op piece">=</span>
-        <img class="car piece" id="heroCar" src="img/car.svg" alt="">
       </div>
     </div>
+    <div class="caravan" aria-hidden="true"><img id="truck" src="img/truck.svg" alt=""></div>
     <div class="hero-road" aria-hidden="true"></div>
   </header>
 
   <main class="wrap" id="register">
-    <h2 class="section-title">Регистрация чека</h2>
-    <p class="section-sub">Займёт минуту. Номер участника пришлём после проверки чека.</p>
+    <h2 class="section-title">Регистрация чека <span class="station-chip hidden" id="stationChip"></span></h2>
+    <p class="section-sub">Заполните до выдачи машинки, затем покажите экран кассиру.</p>
 
     <div class="road-wrap" id="roadWrap" aria-hidden="true">
       <div class="road">
@@ -56,7 +61,7 @@
         <li><span class="dot">1</span>Телефон</li>
         <li><span class="dot">2</span>Чек</li>
         <li><span class="dot">3</span>Согласие</li>
-        <li><span class="dot">✓</span>Финиш</li>
+        <li><span class="dot">✓</span>Касса</li>
       </ol>
     </div>
 
@@ -64,19 +69,10 @@
       <form id="form" novalidate>
         <div class="field">
           <div class="field-head"><span class="n">1</span><h3>Номер телефона</h3></div>
-          <label for="phone" class="hint">На него придёт код подтверждения и номер участника</label>
+          <label for="phone" class="hint">Один номер телефона участвует в акции один раз.</label>
           <input id="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+996 700 123 456" required>
           <div class="error hidden" id="phoneErr" role="alert"></div>
 
-          <div id="smsBlock" class="sms-box hidden">
-            <p class="hint" id="smsHint"></p>
-            <label for="smsCode">Код из SMS</label>
-            <div class="sms-row">
-              <input id="smsCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="4" placeholder="····">
-              <button class="btn small secondary" id="resend" type="button">Отправить код ещё раз</button>
-            </div>
-            <div class="error hidden" id="smsErr" role="alert"></div>
-          </div>
         </div>
 
         <div class="field">
@@ -84,7 +80,7 @@
           <label class="upload" id="uploadBox">
             <img id="preview" class="hidden" alt="Фото чека">
             <span class="cam" id="camIcon" aria-hidden="true">
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#FFC629" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#F07DB8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
             </span>
             <b id="uploadText">Сфотографировать чек</b>
             <span class="hint" id="uploadHint">Целиком, чтобы был виден QR-код внизу чека</span>
@@ -98,59 +94,58 @@
           <div class="field-head"><span class="n">3</span><h3>Согласие</h3></div>
           <label class="consent">
             <input id="consent" type="checkbox">
-            <span>Согласен(-на) на обработку номера телефона и фото чека для участия в розыгрыше, с <a href="#rules" id="rulesLink">правилами акции</a> ознакомлен(-а).</span>
+            <span>Принимаю <a href="rules.html" target="_blank">правила акции</a> и даю согласие на обработку персональных данных в соответствии с <a href="privacy.html" target="_blank">политикой обработки персональных данных</a>.</span>
           </label>
           <div class="error hidden" id="consentErr" role="alert"></div>
         </div>
 
-        <button class="btn" id="submit" type="submit">Отправить заявку</button>
-        <div class="error hidden" id="submitErr" role="alert"></div>
+        <button class="btn" id="submit" type="submit">Зарегистрировать чек</button>
+        <div class="error box hidden" id="submitErr" role="alert"></div>
       </form>
     </section>
 
-    <section class="panel success hidden" id="successCard" aria-live="polite">
+    <section class="panel ticket hidden" id="ticket" aria-live="polite">
       <img class="finish-car" src="img/car.svg" alt="">
-      <h2>Заявка принята</h2>
-      <p>После проверки чека вы получите номер участника по SMS.</p>
-      <div class="plate" aria-label="Номер заявки">
-        <span class="region">01</span>
-        <span class="num" id="appId"></span>
-        <span class="reg"><i></i><span>KG</span></span>
+
+      <div id="stWaiting">
+        <h2>Чек принят</h2>
+        <p>Номер и чек проверены. Покажите этот экран кассиру, чтобы получить машинку.</p>
+        <div class="plate" aria-label="Код заявки">
+          <span class="region">01</span>
+          <span class="num" data-code></span>
+          <span class="reg"><i></i><span>KG</span></span>
+        </div>
+        <div><span class="waiting-line"><span class="pulse"></span>Ждём, когда кассир отметит выдачу</span></div>
       </div>
-      <p class="hint">Номер вашей заявки. Сохраните чек до окончания розыгрыша.</p>
-      <button class="btn secondary" id="again" type="button">Зарегистрировать ещё один чек</button>
+
+      <div id="stIssued" class="hidden">
+        <h2>Машинка ваша!</h2>
+        <p>Вы участвуете в розыгрыше 8 поездок на новогоднем караване. Сохраните номер участника.</p>
+        <span class="entry-number" id="entryNumber"></span>
+      </div>
+
+      <div id="stCancelled" class="hidden">
+        <h2>Заявка отменена</h2>
+        <p id="cancelReason"></p>
+        <button class="btn" id="again" type="button">Зарегистрировать чек заново</button>
+      </div>
     </section>
 
-    <h2 class="section-title">Что важно</h2>
-    <ul class="facts">
-      <li>
-        <span class="ico"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#1C1E21" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2M9 2h6"/></svg></span>
-        <div><b>Регистрируйте чек сразу после покупки</b><span>Один чек принимается один раз. Если кто-то сфотографирует ваш чек, первым может успеть он.</span></div>
-      </li>
-      <li>
-        <span class="ico"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#2E3136" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg></span>
-        <div><b>Два комбо в чеке — два номера</b><span>Каждое оплаченное комбо даёт отдельный номер участника.</span></div>
-      </li>
-      <li>
-        <span class="ico"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#2E3136" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg></span>
-        <div><b>Сохраните чек</b><span>В спорных случаях попросим показать оригинал или электронный чек.</span></div>
-      </li>
-    </ul>
-
-    <details class="rules" id="rules">
-      <summary>Правила акции кратко</summary>
-      <ul>
-        <li>Участвуют чеки с акционным комбо: 2 Coca-Cola и 2 френч-дога.</li>
-        <li>Один чек регистрируется один раз. Если в чеке два комбо, вы получите два номера участника.</li>
-        <li>Мы сверяем чек с данными продаж, выдачей игрушки и возвратами.</li>
-        <li>Номер участника приходит по SMS после проверки.</li>
-      </ul>
-    </details>
+    <h2 class="section-title">Как участвовать в акции «Караван новогодних чудес»</h2>
+    <ol class="how">
+      <li><div><b>Купите комбо</b><span>Комбо «Караван новогодних чудес»: 2 френч-дога и 2 колы 0,5 л.</span></div></li>
+      <li><div><b>Зарегистрируйте чек</b><span>Отсканируйте QR-код на кассе и зарегистрируйте чек по номеру телефона. Один чек можно зарегистрировать только один раз.</span></div></li>
+      <li><div><b>Получите брендированную машинку Coca-Cola</b><span>Машинка выдаётся один раз за всю акцию на один номер телефона.</span></div></li>
+      <li><div><b>Участвуйте в розыгрыше</b><span>Один номер телефона даёт один шанс выиграть поездку на новогоднем караване. Всего разыгрывается 8 поездок, по одной на каждого победителя.</span></div></li>
+    </ol>
   </main>
 
   <footer class="site-footer">
+    <a href="rules.html">Правила акции</a>
+    <a href="privacy.html">Политика обработки данных</a>
     <a href="test-receipt.html">Тестовый чек</a>
-    <a href="stand.html">Табличка для стойки</a>
+    <a href="stand.html">QR для кассы</a>
+    <a href="cashier.html">Касса</a>
     <a href="admin.html">Реестр</a>
   </footer>
 

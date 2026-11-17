@@ -42,7 +42,7 @@ cd backend && ADMIN_PASSWORD=demo ../.venv/bin/uvicorn app:app --port 8765
 
 Открыть http://localhost:8765, реестр — http://localhost:8765/admin.html (пароль `demo`).
 
-Тест сквозного сценария: `cd backend && ../.venv/bin/python test_app.py`
+Тест сквозного сценария (регистрация, блокировки, касса, одновременная регистрация): `cd backend && ../.venv/bin/python test_app.py`
 
 ## Развёртывание
 

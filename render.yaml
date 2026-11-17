@@ -22,10 +22,9 @@ services:
         generateValue: true
       - key: ALLOWED_ORIGINS
         value: https://glee998.github.io
-      - key: SMS_REQUIRED
-        value: "true"
-      - key: DEMO_SMS
-        value: "true"
+      # Пароль кассиров тоже генерирует Render.
+      - key: CASHIER_PASSWORD
+        generateValue: true
 
 databases:
   - name: azs-promo-db

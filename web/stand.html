@@ -3,22 +3,30 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Табличка для стойки</title>
-  <link rel="icon" href="img/car.svg" type="image/svg+xml">
+  <title>QR для кассы</title>
+  <link rel="icon" href="img/truck.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=Russo+One&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="assets/style.css">
 </head>
 <body class="poster-page">
+  <div class="print-bar no-print" style="margin-top:24px">
+    <label for="stationNo">Номер АЗС для этого QR</label>
+    <input id="stationNo" type="text" inputmode="numeric" maxlength="8" placeholder="например, 12">
+  </div>
+
   <main class="poster">
-    <div class="poster-top hero">
-      <h1>Комбо с&nbsp;машинкой</h1>
-      <p>Купите 2 Coca-Cola и 2 френч-дога, получите машинку и участвуйте в розыгрыше призов</p>
-      <div class="equation" aria-label="2 Coca-Cola плюс 2 френч-дога равно машинка">
-        <div class="pair"><img class="cup" src="img/cup.svg" alt=""><img class="cup" src="img/cup.svg" alt=""></div>
-        <span class="op">+</span>
+    <div class="poster-top">
+      <div class="snow" aria-hidden="true"></div>
+      <img class="logo" src="img/logo-white.svg" alt="Partner Neft">
+      <p class="partners">Partner Neft <span class="x">x</span> Coca Cola</p>
+      <h1>Караван Новогодних Чудес</h1>
+      <p>2 френч-дога + 2 Coca Cola = машинка и шанс на поездку!</p>
+      <div class="equation" aria-hidden="true">
         <div class="stack"><img class="dog" src="img/frenchdog.svg" alt=""><img class="dog" src="img/frenchdog.svg" alt=""></div>
+        <span class="op">+</span>
+        <div class="pair"><img class="cup" src="img/cup.svg" alt=""><img class="cup" src="img/cup.svg" alt=""></div>
         <span class="op">=</span>
         <img class="car" src="img/car.svg" alt="">
       </div>
@@ -27,25 +35,39 @@
 
     <div class="poster-body">
       <p class="scan">Отсканируйте и&nbsp;зарегистрируйте чек</p>
+      <div class="station-name hidden" id="stationName"></div><br>
       <div id="qr"></div>
       <div class="url" id="url"></div>
-      <div class="hazard">Зарегистрируйте свой чек сразу после покупки</div>
-      <p class="small">Один чек регистрируется один раз. Сохраните чек до окончания розыгрыша.</p>
+      <div class="banner">Зарегистрируйте чек до выдачи машинки</div>
+      <p class="small">Один чек регистрируется один раз. Машинка выдаётся один раз на номер телефона.</p>
     </div>
   </main>
 
   <div class="print-bar no-print">
-    <button class="btn" onclick="print()">Распечатать табличку</button>
+    <button class="btn" onclick="print()">Распечатать</button>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
   <script>
-    const formUrl = new URL('./', location.href).href;
-    const qr = qrcode(0, 'M');
-    qr.addData(formUrl);
-    qr.make();
-    document.getElementById('qr').innerHTML = qr.createSvgTag({ cellSize: 7, margin: 0, scalable: false });
-    document.getElementById('url').textContent = formUrl;
+    const input = document.getElementById('stationNo');
+    input.value = new URLSearchParams(location.search).get('azs') || '';
+
+    // У каждой кассы свой QR: номер АЗС попадает в заявку и подсвечивается у кассира.
+    function draw() {
+      const no = input.value.trim();
+      const url = new URL('./', location.href);
+      if (no) url.searchParams.set('azs', no);
+      const qr = qrcode(0, 'M');
+      qr.addData(url.href);
+      qr.make();
+      document.getElementById('qr').innerHTML = qr.createSvgTag({ cellSize: 7, margin: 0, scalable: false });
+      document.getElementById('url').textContent = url.href;
+      const name = document.getElementById('stationName');
+      name.textContent = 'АЗС №' + no;
+      name.classList.toggle('hidden', !no);
+    }
+    input.addEventListener('input', draw);
+    draw();
   </script>
 </body>
 </html>

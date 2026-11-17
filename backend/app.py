@@ -1,4 +1,9 @@
-"""API акции «Комбо Coca-Cola»: приём заявок с чеками и закрытый реестр маркетинга."""
+"""API акции «Караван новогодних чудес» (Partner Neft × Coca-Cola).
+
+Клиент регистрирует чек до выдачи машинки, система проверяет номер и чек по общей базе
+всех АЗС, кассир видит одобренную заявку, выдаёт машинку и отмечает выдачу. После выдачи
+номер телефона получает одну заявку на розыгрыш.
+"""
 
 import csv
 import io
@@ -14,8 +19,9 @@ from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel
-from sqlalchemy import (Boolean, DateTime, ForeignKey, Integer, LargeBinary, String,
-                        Text, create_engine, select)
+from sqlalchemy import (Boolean, DateTime, ForeignKey, LargeBinary, String, Text,
+                        create_engine, select)
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship
 
 
@@ -31,7 +37,10 @@ def _db_url() -> str:
 
 
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "demo")
-SMS_REQUIRED = os.getenv("SMS_REQUIRED", "true").lower() == "true"
+CASHIER_PASSWORD = os.getenv("CASHIER_PASSWORD", "kassa")
+# Подтверждение номера кодом выключено по решению заказчика. Механизм оставлен, чтобы его можно
+# было включить (SMS или WhatsApp), если начнут регистрировать чужие номера.
+SMS_REQUIRED = os.getenv("SMS_REQUIRED", "false").lower() == "true"
 # В демо SMS не отправляются: код возвращается в ответе и показывается на экране.
 DEMO_SMS = os.getenv("DEMO_SMS", "true").lower() == "true"
 ALLOWED_ORIGINS = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "*").split(",") if o.strip()]
@@ -39,6 +48,8 @@ MAX_PHOTO_BYTES = 10 * 1024 * 1024
 SMS_TTL = timedelta(minutes=10)
 SMS_RESEND = timedelta(seconds=30)
 SMS_MAX_ATTEMPTS = 5
+# Заявка, по которой машинку так и не выдали, перестаёт держать номер и чек.
+WAITING_TTL = timedelta(hours=int(os.getenv("WAITING_TTL_HOURS", "3")))
 
 engine = create_engine(_db_url(), pool_pre_ping=True)
 
@@ -58,63 +69,88 @@ class Base(DeclarativeBase):
     pass
 
 
-class Application(Base):
-    __tablename__ = "applications"
+class Registration(Base):
+    """Регистрация чека.
+
+    Статусы:
+      waiting      — проверки пройдены, ждёт выдачи машинки на кассе;
+      issued       — машинка выдана, номер телефона участвует в розыгрыше;
+      cancelled    — отменена до выдачи (кассиром или по сроку), номер и чек свободны;
+      disqualified — снята маркетингом после выдачи (например, возврат), номер остаётся занятым.
+
+    phone_lock и receipt_lock заполнены, пока заявка действует. Уникальные индексы по ним
+    не дают зарегистрировать тот же номер или чек дважды, в том числе одновременно на двух АЗС.
+    """
+    __tablename__ = "registrations"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    code: Mapped[str] = mapped_column(String(16), unique=True)  # «123 ABC»
+    code: Mapped[str] = mapped_column(String(16), unique=True)  # «123 ABC», показывается кассиру
+    token: Mapped[str] = mapped_column(String(64), unique=True)  # для экрана статуса у клиента
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    station: Mapped[str | None] = mapped_column(String(32))
     phone: Mapped[str] = mapped_column(String(16), index=True)
     phone_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     consent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
-    # Фискальные реквизиты: ФН + ФД + ФП однозначно определяют чек.
+    # Фискальные реквизиты: ФН + ФД + ФМ однозначно определяют чек.
     fn: Mapped[str | None] = mapped_column(String(32))
     fd: Mapped[str | None] = mapped_column(String(32))
-    fp: Mapped[str | None] = mapped_column(String(32))
+    fm: Mapped[str | None] = mapped_column(String(32))
     receipt_sum: Mapped[str | None] = mapped_column(String(16))
     receipt_date: Mapped[str | None] = mapped_column(String(32))
-    fiscal_source: Mapped[str | None] = mapped_column(String(8))  # qr | manual
-    fiscal_key: Mapped[str | None] = mapped_column(String(100), index=True)
+    fiscal_source: Mapped[str | None] = mapped_column(String(8))  # qr | cashier
 
-    combos: Mapped[int] = mapped_column(Integer, default=1)
+    phone_lock: Mapped[str | None] = mapped_column(String(16), unique=True)
+    receipt_lock: Mapped[str | None] = mapped_column(String(100), unique=True)
+
+    status: Mapped[str] = mapped_column(String(16), default="waiting")
+    issued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    issued_station: Mapped[str | None] = mapped_column(String(32))
+    status_reason: Mapped[str | None] = mapped_column(Text)
     check_purchase: Mapped[bool] = mapped_column(Boolean, default=False)
-    check_issued: Mapped[bool] = mapped_column(Boolean, default=False)
     returned: Mapped[bool] = mapped_column(Boolean, default=False)
 
-    status: Mapped[str] = mapped_column(String(16), default="pending")  # pending | approved | rejected
-    reject_reason: Mapped[str | None] = mapped_column(Text)
-    note: Mapped[str | None] = mapped_column(Text)
+    photo: Mapped["RegistrationPhoto"] = relationship(back_populates="registration", cascade="all, delete-orphan")
+    entry: Mapped["Entry | None"] = relationship(back_populates="registration", cascade="all, delete-orphan")
 
-    photo: Mapped["Photo"] = relationship(back_populates="application", cascade="all, delete-orphan")
-    participants: Mapped[list["Participant"]] = relationship(
-        back_populates="application", cascade="all, delete-orphan", order_by="Participant.id")
+    @property
+    def fiscal_key(self) -> str | None:
+        return f"{self.fn}/{self.fd}/{self.fm}" if self.fn and self.fd and self.fm else None
 
-    def set_fiscal(self, fn: str | None, fd: str | None, fp: str | None, source: str | None) -> None:
-        self.fn, self.fd, self.fp = (clean_digits(v) for v in (fn, fd, fp))
-        self.fiscal_key = f"{self.fn}/{self.fd}/{self.fp}" if self.fn and self.fd and self.fp else None
+    def set_fiscal(self, fn, fd, fm, source: str) -> None:
+        self.fn, self.fd, self.fm = (clean_digits(v) for v in (fn, fd, fm))
         self.fiscal_source = source if self.fiscal_key else None
+        self.receipt_lock = self.fiscal_key
+
+    def release(self, status: str, reason: str) -> None:
+        self.status = status
+        self.status_reason = reason
+        self.phone_lock = None
+        self.receipt_lock = None
+
+    def expired(self) -> bool:
+        return self.status == "waiting" and now() - as_utc(self.created_at) > WAITING_TTL
 
 
-class Photo(Base):
-    __tablename__ = "photos"
+class RegistrationPhoto(Base):
+    __tablename__ = "registration_photos"
 
-    application_id: Mapped[int] = mapped_column(ForeignKey("applications.id"), primary_key=True)
+    registration_id: Mapped[int] = mapped_column(ForeignKey("registrations.id"), primary_key=True)
     data: Mapped[bytes] = mapped_column(LargeBinary)
-    application: Mapped[Application] = relationship(back_populates="photo")
+    registration: Mapped[Registration] = relationship(back_populates="photo")
 
 
-class Participant(Base):
-    """Номер участника розыгрыша. Один номер — одно комбо в допущенном чеке."""
-    __tablename__ = "participants"
+class Entry(Base):
+    """Заявка на розыгрыш: одна на номер телефона, появляется после выдачи машинки."""
+    __tablename__ = "entries"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    application_id: Mapped[int] = mapped_column(ForeignKey("applications.id"))
-    application: Mapped[Application] = relationship(back_populates="participants")
+    registration_id: Mapped[int] = mapped_column(ForeignKey("registrations.id"), unique=True)
+    registration: Mapped[Registration] = relationship(back_populates="entry")
 
     @property
     def number(self) -> str:
-        return f"CC-{self.id:05d}"
+        return f"KN-{self.id:05d}"
 
 
 class SmsCode(Base):
@@ -123,7 +159,7 @@ class SmsCode(Base):
     phone: Mapped[str] = mapped_column(String(16), primary_key=True)
     code: Mapped[str] = mapped_column(String(8))
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    attempts: Mapped[int] = mapped_column(default=0)
 
 
 Base.metadata.create_all(engine)
@@ -136,7 +172,7 @@ def get_db():
 
 # ---------- утилиты ----------
 
-def clean_digits(v: str | None) -> str | None:
+def clean_digits(v) -> str | None:
     if v is None:
         return None
     v = "".join(ch for ch in str(v) if ch.isdigit())
@@ -153,6 +189,16 @@ def normalize_phone(raw: str) -> str | None:
     if len(d) == 9:
         d = "996" + d
     return "+" + d if len(d) == 12 and d.startswith("996") else None
+
+
+def mask_phone(phone: str) -> str:
+    # +996 555 *** 456 — кассиру хватает, чтобы сверить с телефоном клиента.
+    return f"{phone[:4]} {phone[4:7]} *** {phone[-3:]}"
+
+
+def clean_station(v: str | None) -> str | None:
+    v = (v or "").strip()[:32]
+    return v or None
 
 
 def process_photo(raw: bytes) -> bytes:
@@ -172,19 +218,30 @@ def new_code(db: Session) -> str:
     while True:
         # Как на кыргызском номерном знаке: 3 цифры и 3 латинские буквы, например «123 ABC».
         code = f"{random.randint(0, 999):03d} " + "".join(random.choices("ABCEHKMOPTXY", k=3))
-        if not db.scalar(select(Application.id).where(Application.code == code)):
+        if not db.scalar(select(Registration.id).where(Registration.code == code)):
             return code
 
 
+def bearer(authorization: str) -> str:
+    return authorization.removeprefix("Bearer ").strip()
+
+
 def require_admin(authorization: str = Header(default="")) -> None:
-    token = authorization.removeprefix("Bearer ").strip()
-    if not secrets.compare_digest(token.encode(), ADMIN_PASSWORD.encode()):
+    if not secrets.compare_digest(bearer(authorization).encode(), ADMIN_PASSWORD.encode()):
         raise HTTPException(401, "Нужен пароль реестра")
+
+
+def require_cashier(authorization: str = Header(default="")) -> None:
+    # Маркетинг тоже может работать в кассовом интерфейсе своим паролем.
+    token = bearer(authorization).encode()
+    if not (secrets.compare_digest(token, CASHIER_PASSWORD.encode())
+            or secrets.compare_digest(token, ADMIN_PASSWORD.encode())):
+        raise HTTPException(401, "Нужен пароль кассира")
 
 
 # ---------- приложение ----------
 
-app = FastAPI(title="Promo receipts API")
+app = FastAPI(title="Karavan promo API")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
@@ -215,6 +272,10 @@ def sms_send(body: SmsRequest, db: Session = Depends(get_db)):
     phone = normalize_phone(body.phone)
     if not phone:
         raise HTTPException(400, "Введите номер в формате +996 XXX XXX XXX")
+    # Не тратим SMS на номер, который уже получил машинку.
+    taken = db.scalar(select(Registration).where(Registration.phone_lock == phone))
+    if taken and not taken.expired():
+        raise HTTPException(409, phone_taken_message(taken))
     row = db.get(SmsCode, phone)
     if row and now() - as_utc(row.sent_at) < SMS_RESEND:
         raise HTTPException(429, "Код уже отправлен. Повторить можно через 30 секунд.")
@@ -224,7 +285,7 @@ def sms_send(body: SmsRequest, db: Session = Depends(get_db)):
     else:
         db.add(SmsCode(phone=phone, code=code, sent_at=now()))
     db.commit()
-    # TODO боевая версия: отправка через SMS-провайдера Кыргызстана (например, Nikita, SMSPRO).
+    # TODO боевая версия: отправка через SMS- или WhatsApp-провайдера.
     return {"sent": True, "demo_code": code if DEMO_SMS else None}
 
 
@@ -241,15 +302,44 @@ def verify_sms(db: Session, phone: str, code: str) -> None:
     db.delete(row)
 
 
-@app.post("/api/applications")
-async def create_application(
+def phone_taken_message(r: Registration) -> str:
+    if r.status == "waiting":
+        return (f"Этот номер уже зарегистрирован, заявка {r.code} ждёт выдачи машинки. "
+                "Покажите её кассиру.")
+    return "Этот номер уже получил машинку. По условиям акции машинка выдаётся один раз на номер."
+
+
+def release_expired(db: Session, phone: str, fiscal_key: str | None) -> None:
+    """Освобождаем номер и чек, если их держит заявка, по которой машинку так и не выдали."""
+    conds = [Registration.phone_lock == phone]
+    if fiscal_key:
+        conds.append(Registration.receipt_lock == fiscal_key)
+    for r in db.scalars(select(Registration).where(Registration.status == "waiting")
+                        .where(conds[0] if len(conds) == 1 else (conds[0] | conds[1]))):
+        if r.expired():
+            r.release("cancelled", "Машинку не забрали вовремя")
+    db.flush()
+
+
+def conflict_message(db: Session, phone: str, fiscal_key: str | None) -> str:
+    taken = db.scalar(select(Registration).where(Registration.phone_lock == phone))
+    if taken:
+        return phone_taken_message(taken)
+    if fiscal_key and db.scalar(select(Registration.id).where(Registration.receipt_lock == fiscal_key)):
+        return "Этот чек уже зарегистрирован. Один чек можно зарегистрировать только один раз."
+    return "Не удалось зарегистрировать чек. Попробуйте ещё раз."
+
+
+@app.post("/api/registrations")
+async def create_registration(
     phone: str = Form(...),
     consent: bool = Form(...),
     photo: UploadFile = File(...),
     sms_code: str = Form(""),
+    station: str = Form(""),
     fn: str = Form(""),
     fd: str = Form(""),
-    fp: str = Form(""),
+    fm: str = Form(""),
     receipt_sum: str = Form(""),
     receipt_date: str = Form(""),
     db: Session = Depends(get_db),
@@ -258,77 +348,165 @@ async def create_application(
     if not phone_n:
         raise HTTPException(400, "Введите номер в формате +996 XXX XXX XXX")
     if not consent:
-        raise HTTPException(400, "Нужно согласие на обработку данных")
-    if SMS_REQUIRED:
-        verify_sms(db, phone_n, sms_code)
+        raise HTTPException(400, "Нужно согласие с правилами акции и обработкой данных")
 
     raw = await photo.read(MAX_PHOTO_BYTES + 1)
     if len(raw) > MAX_PHOTO_BYTES:
         raise HTTPException(400, "Фото слишком большое (больше 10 МБ)")
+    photo_data = process_photo(raw)
 
-    a = Application(
+    r = Registration(
         code=new_code(db),
+        token=secrets.token_urlsafe(24),
+        station=clean_station(station),
         phone=phone_n,
+        phone_lock=phone_n,
         phone_verified=SMS_REQUIRED,
         consent_at=now(),
         receipt_sum=receipt_sum[:16] or None,
         receipt_date=receipt_date[:32] or None,
     )
-    # Реквизиты из QR распознаёт браузер клиента. Им не доверяем: маркетинг сверяет их с продажами.
-    a.set_fiscal(fn, fd, fp, "qr")
-    a.photo = Photo(data=process_photo(raw))
-    db.add(a)
+    # Реквизиты из QR распознаёт браузер клиента. Если QR не прочитался, их введёт кассир.
+    r.set_fiscal(fn, fd, fm, "qr")
+    r.photo = RegistrationPhoto(data=photo_data)
+
+    release_expired(db, phone_n, r.fiscal_key)
+    if SMS_REQUIRED:
+        verify_sms(db, phone_n, sms_code)
+    db.add(r)
+    try:
+        db.commit()
+    except IntegrityError:
+        # Уникальные индексы сработали: номер или чек уже заняты (возможно, секунду назад на другой АЗС).
+        db.rollback()
+        raise HTTPException(409, conflict_message(db, phone_n, r.fiscal_key))
+    return {"code": r.code, "token": r.token, "status": r.status}
+
+
+@app.get("/api/registrations/status/{token}")
+def registration_status(token: str, db: Session = Depends(get_db)):
+    r = db.scalar(select(Registration).where(Registration.token == token))
+    if not r:
+        raise HTTPException(404, "Заявка не найдена")
+    if r.expired():
+        r.release("cancelled", "Машинку не забрали вовремя")
+        db.commit()
+    return {"code": r.code, "status": r.status, "reason": r.status_reason,
+            "entry": r.entry.number if r.entry else None}
+
+
+# ---------- касса ----------
+
+def cashier_view(r: Registration) -> dict:
+    return {
+        "id": r.id,
+        "code": r.code,
+        "created_at": as_utc(r.created_at).isoformat(),
+        "station": r.station,
+        "phone": mask_phone(r.phone),
+        "fn": r.fn, "fd": r.fd, "fm": r.fm,
+        "receipt_sum": r.receipt_sum,
+        "needs_fiscal": not r.fiscal_key,
+        "status": r.status,
+        "reason": r.status_reason,
+        "issued_station": r.issued_station,
+        "entry": r.entry.number if r.entry else None,
+    }
+
+
+def get_reg(db: Session, reg_id: int) -> Registration:
+    r = db.get(Registration, reg_id)
+    if not r:
+        raise HTTPException(404, "Заявка не найдена")
+    return r
+
+
+@app.post("/api/cashier/login", dependencies=[Depends(require_cashier)])
+def cashier_login():
+    return {"ok": True}
+
+
+@app.get("/api/cashier/queue", dependencies=[Depends(require_cashier)])
+def cashier_queue(db: Session = Depends(get_db)):
+    """Заявки, ожидающие выдачи, и последние выданные — по всем АЗС, свежие сверху."""
+    waiting = db.scalars(select(Registration).where(Registration.status == "waiting")
+                         .order_by(Registration.created_at.desc())).all()
+    changed = False
+    for r in waiting:
+        if r.expired():
+            r.release("cancelled", "Машинку не забрали вовремя")
+            changed = True
+    if changed:
+        db.commit()
+    recent = db.scalars(select(Registration).where(Registration.status == "issued")
+                        .order_by(Registration.issued_at.desc()).limit(10)).all()
+    return {"waiting": [cashier_view(r) for r in waiting if r.status == "waiting"],
+            "recent": [cashier_view(r) for r in recent]}
+
+
+@app.get("/api/cashier/registrations/{reg_id}/photo", dependencies=[Depends(require_cashier)])
+def cashier_photo(reg_id: int, db: Session = Depends(get_db)):
+    photo = db.get(RegistrationPhoto, reg_id)
+    if not photo:
+        raise HTTPException(404, "Фото не найдено")
+    return Response(photo.data, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=3600"})
+
+
+class IssueBody(BaseModel):
+    station: str = ""
+    fn: str | None = None
+    fd: str | None = None
+    fm: str | None = None
+
+
+@app.post("/api/cashier/registrations/{reg_id}/issue", dependencies=[Depends(require_cashier)])
+def cashier_issue(reg_id: int, body: IssueBody, db: Session = Depends(get_db)):
+    r = get_reg(db, reg_id)
+    if r.status != "waiting" or r.expired():
+        raise HTTPException(400, "Заявка уже не ждёт выдачи. Обновите список.")
+    if not r.fiscal_key:
+        r.set_fiscal(body.fn, body.fd, body.fm, "cashier")
+        if not r.fiscal_key:
+            raise HTTPException(400, "Введите ФН, ФД и ФМ с бумажного чека")
+    r.status = "issued"
+    r.issued_at = now()
+    r.issued_station = clean_station(body.station) or r.station
+    r.entry = Entry()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, "Этот чек уже зарегистрирован другой заявкой. Машинку не выдавайте.")
+    return cashier_view(r)
+
+
+class ReasonBody(BaseModel):
+    reason: str = ""
+
+
+@app.post("/api/cashier/registrations/{reg_id}/cancel", dependencies=[Depends(require_cashier)])
+def cashier_cancel(reg_id: int, body: ReasonBody, db: Session = Depends(get_db)):
+    r = get_reg(db, reg_id)
+    if r.status != "waiting":
+        raise HTTPException(400, "Отменить можно только заявку, которая ждёт выдачи")
+    r.release("cancelled", body.reason.strip() or "Отменена на кассе")
     db.commit()
-    # Клиенту не сообщаем о дубликате: результат он узнает после проверки.
-    return {"code": a.code}
+    return cashier_view(r)
 
 
 # ---------- реестр маркетинга ----------
 
-def first_by_key(db: Session) -> dict[str, tuple[int, str]]:
-    """Для каждого чека — самая ранняя заявка. Остальные с тем же чеком считаются дубликатами."""
-    rows = db.execute(
-        select(Application.fiscal_key, Application.id, Application.code)
-        .where(Application.fiscal_key.is_not(None))
-        .order_by(Application.created_at, Application.id)
-    ).all()
-    first: dict[str, tuple[int, str]] = {}
-    for key, id_, code in rows:
-        first.setdefault(key, (id_, code))
-    return first
-
-
-def serialize(a: Application, first: dict[str, tuple[int, str]]) -> dict:
-    dup_of = None
-    if a.fiscal_key and first.get(a.fiscal_key, (a.id,))[0] != a.id:
-        dup_of = first[a.fiscal_key][1]
+def admin_view(r: Registration) -> dict:
     return {
-        "id": a.id,
-        "code": a.code,
-        "created_at": as_utc(a.created_at).isoformat(),
-        "phone": a.phone,
-        "phone_verified": a.phone_verified,
-        "fn": a.fn, "fd": a.fd, "fp": a.fp,
-        "receipt_sum": a.receipt_sum,
-        "receipt_date": a.receipt_date,
-        "fiscal_source": a.fiscal_source,
-        "combos": a.combos,
-        "check_purchase": a.check_purchase,
-        "check_issued": a.check_issued,
-        "returned": a.returned,
-        "status": a.status,
-        "reject_reason": a.reject_reason,
-        "note": a.note,
-        "numbers": [p.number for p in a.participants],
-        "duplicate_of": dup_of,
+        **cashier_view(r),
+        "phone": r.phone,
+        "phone_verified": r.phone_verified,
+        "receipt_date": r.receipt_date,
+        "fiscal_source": r.fiscal_source,
+        "issued_at": as_utc(r.issued_at).isoformat() if r.issued_at else None,
+        "check_purchase": r.check_purchase,
+        "returned": r.returned,
     }
-
-
-def get_app(db: Session, app_id: int) -> Application:
-    a = db.get(Application, app_id)
-    if not a:
-        raise HTTPException(404, "Заявка не найдена")
-    return a
 
 
 @app.post("/api/admin/login", dependencies=[Depends(require_admin)])
@@ -336,120 +514,74 @@ def admin_login():
     return {"ok": True}
 
 
-@app.get("/api/admin/applications", dependencies=[Depends(require_admin)])
-def list_applications(db: Session = Depends(get_db)):
-    first = first_by_key(db)
-    apps = db.scalars(select(Application).order_by(Application.created_at.desc())).all()
-    items = [serialize(a, first) for a in apps]
+@app.get("/api/admin/registrations", dependencies=[Depends(require_admin)])
+def list_registrations(db: Session = Depends(get_db)):
+    regs = db.scalars(select(Registration).order_by(Registration.created_at.desc())).all()
+    items = [admin_view(r) for r in regs]
     stats = {
         "total": len(items),
-        "pending": sum(i["status"] == "pending" for i in items),
-        "approved": sum(i["status"] == "approved" for i in items),
-        "rejected": sum(i["status"] == "rejected" for i in items),
-        "duplicates": sum(bool(i["duplicate_of"]) for i in items),
-        "participants": sum(len(i["numbers"]) for i in items),
+        "waiting": sum(i["status"] == "waiting" for i in items),
+        "issued": sum(i["status"] == "issued" for i in items),
+        "cancelled": sum(i["status"] == "cancelled" for i in items),
+        "disqualified": sum(i["status"] == "disqualified" for i in items),
+        "unchecked": sum(i["status"] == "issued" and not i["check_purchase"] for i in items),
     }
     return {"items": items, "stats": stats}
 
 
-@app.get("/api/admin/applications/{app_id}/photo", dependencies=[Depends(require_admin)])
-def get_photo(app_id: int, db: Session = Depends(get_db)):
-    photo = db.get(Photo, app_id)
-    if not photo:
-        raise HTTPException(404, "Фото не найдено")
-    return Response(photo.data, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=3600"})
+@app.get("/api/admin/registrations/{reg_id}/photo", dependencies=[Depends(require_admin)])
+def admin_photo(reg_id: int, db: Session = Depends(get_db)):
+    return cashier_photo(reg_id, db)
 
 
-class ApplicationPatch(BaseModel):
-    fn: str | None = None
-    fd: str | None = None
-    fp: str | None = None
-    combos: int | None = None
+class AdminPatch(BaseModel):
     check_purchase: bool | None = None
-    check_issued: bool | None = None
     returned: bool | None = None
-    note: str | None = None
 
 
-@app.patch("/api/admin/applications/{app_id}", dependencies=[Depends(require_admin)])
-def patch_application(app_id: int, body: ApplicationPatch, db: Session = Depends(get_db)):
-    a = get_app(db, app_id)
+@app.patch("/api/admin/registrations/{reg_id}", dependencies=[Depends(require_admin)])
+def patch_registration(reg_id: int, body: AdminPatch, db: Session = Depends(get_db)):
+    r = get_reg(db, reg_id)
     data = body.model_dump(exclude_unset=True)
-    if a.status == "approved" and data.keys() & {"fn", "fd", "fp", "combos"}:
-        raise HTTPException(400, "Заявка уже допущена. Верните её на проверку, чтобы изменить реквизиты.")
-    if {"fn", "fd", "fp"} & data.keys():
-        changed = any(clean_digits(data.get(k, getattr(a, k))) != getattr(a, k) for k in ("fn", "fd", "fp"))
-        a.set_fiscal(data.get("fn", a.fn), data.get("fd", a.fd), data.get("fp", a.fp),
-                     "manual" if changed else a.fiscal_source)
-    if "combos" in data:
-        if not 1 <= data["combos"] <= 20:
-            raise HTTPException(400, "Количество комбо — от 1 до 20")
-        a.combos = data["combos"]
-    for field in ("check_purchase", "check_issued", "note"):
-        if field in data:
-            setattr(a, field, data[field])
+    if "check_purchase" in data:
+        r.check_purchase = data["check_purchase"]
     if "returned" in data:
-        a.returned = data["returned"]
-        if a.returned and a.status == "approved":
-            revoke(a, "Возврат покупки")
+        r.returned = data["returned"]
+        if r.returned and r.status == "issued":
+            disqualify(r, "Возврат покупки")
     db.commit()
-    return serialize(a, first_by_key(db))
+    return admin_view(r)
 
 
-def revoke(a: Application, reason: str) -> None:
-    a.status = "rejected"
-    a.reject_reason = reason
-    a.participants.clear()
+def disqualify(r: Registration, reason: str) -> None:
+    # Машинка уже выдана: номер и чек остаются занятыми, снимается только заявка на розыгрыш.
+    r.status = "disqualified"
+    r.status_reason = reason
+    r.entry = None
 
 
-@app.post("/api/admin/applications/{app_id}/approve", dependencies=[Depends(require_admin)])
-def approve(app_id: int, db: Session = Depends(get_db)):
-    a = get_app(db, app_id)
-    if a.status == "approved":
-        raise HTTPException(400, "Заявка уже допущена")
-    problems = []
-    if not a.fiscal_key:
-        problems.append("не заполнены ФН, ФД и ФП")
-    if not a.check_purchase:
-        problems.append("покупка не сверена с продажами")
-    if not a.check_issued:
-        problems.append("нет отметки о выдаче игрушки")
-    if a.returned:
-        problems.append("по чеку был возврат")
-    if a.fiscal_key:
-        other = db.scalar(select(Application.code).where(
-            Application.fiscal_key == a.fiscal_key, Application.status == "approved", Application.id != a.id))
-        if other:
-            problems.append(f"этот чек уже допущен в заявке {other}")
-    if problems:
-        raise HTTPException(400, "Нельзя допустить: " + "; ".join(problems))
-    a.status = "approved"
-    a.reject_reason = None
-    a.participants = [Participant() for _ in range(a.combos)]
+@app.post("/api/admin/registrations/{reg_id}/disqualify", dependencies=[Depends(require_admin)])
+def admin_disqualify(reg_id: int, body: ReasonBody, db: Session = Depends(get_db)):
+    r = get_reg(db, reg_id)
+    if r.status != "issued":
+        raise HTTPException(400, "Снять с розыгрыша можно только заявку с выданной машинкой")
+    disqualify(r, body.reason.strip() or "Снята маркетингом")
     db.commit()
-    return serialize(a, first_by_key(db))
+    return admin_view(r)
 
 
-class RejectBody(BaseModel):
-    reason: str = ""
-
-
-@app.post("/api/admin/applications/{app_id}/reject", dependencies=[Depends(require_admin)])
-def reject(app_id: int, body: RejectBody, db: Session = Depends(get_db)):
-    a = get_app(db, app_id)
-    revoke(a, body.reason.strip() or "Не прошла проверку")
+@app.post("/api/admin/registrations/{reg_id}/restore", dependencies=[Depends(require_admin)])
+def admin_restore(reg_id: int, db: Session = Depends(get_db)):
+    r = get_reg(db, reg_id)
+    if r.status != "disqualified":
+        raise HTTPException(400, "Вернуть в розыгрыш можно только снятую заявку")
+    if r.returned:
+        raise HTTPException(400, "По чеку был возврат. Сначала снимите отметку о возврате.")
+    r.status = "issued"
+    r.status_reason = None
+    r.entry = Entry()
     db.commit()
-    return serialize(a, first_by_key(db))
-
-
-@app.post("/api/admin/applications/{app_id}/reset", dependencies=[Depends(require_admin)])
-def reset(app_id: int, db: Session = Depends(get_db)):
-    a = get_app(db, app_id)
-    a.status = "pending"
-    a.reject_reason = None
-    a.participants.clear()
-    db.commit()
-    return serialize(a, first_by_key(db))
+    return admin_view(r)
 
 
 def read_csv_rows(raw: bytes) -> list[dict]:
@@ -464,48 +596,46 @@ def read_csv_rows(raw: bytes) -> list[dict]:
 
 @app.post("/api/admin/import/{kind}", dependencies=[Depends(require_admin)])
 async def import_csv(kind: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
-    """Сверка с выгрузками кассы. CSV с колонками fn;fd;fp (для продаж ещё qty — число комбо в чеке)."""
-    if kind not in ("sales", "issued", "returns"):
+    """Сверка с выгрузками кассы. CSV с колонками fn;fd;fm (колонка fp тоже подходит вместо fm)."""
+    if kind not in ("sales", "returns"):
         raise HTTPException(404, "Неизвестный тип выгрузки")
     rows = read_csv_rows(await file.read())
-    if rows and not {"fn", "fd", "fp"} <= rows[0].keys():
-        raise HTTPException(400, "В CSV нужны колонки fn, fd, fp")
+    if rows and not ({"fn", "fd"} <= rows[0].keys() and ({"fm", "fp"} & rows[0].keys())):
+        raise HTTPException(400, "В CSV нужны колонки fn, fd, fm")
     matched = 0
     for row in rows:
-        key = "/".join(clean_digits(row.get(k)) or "" for k in ("fn", "fd", "fp"))
-        apps = db.scalars(select(Application).where(Application.fiscal_key == key)).all()
-        for a in apps:
+        fn, fd, fm = (clean_digits(row.get(k)) for k in ("fn", "fd", "fm" if "fm" in row else "fp"))
+        regs = db.scalars(select(Registration).where(
+            Registration.fn == fn, Registration.fd == fd, Registration.fm == fm)).all()
+        for r in regs:
             matched += 1
             if kind == "sales":
-                a.check_purchase = True
-                qty = clean_digits(row.get("qty"))
-                if qty and a.status != "approved":
-                    a.combos = max(1, min(20, int(qty)))
-            elif kind == "issued":
-                a.check_issued = True
+                r.check_purchase = True
             else:
-                a.returned = True
-                if a.status == "approved":
-                    revoke(a, "Возврат покупки")
+                r.returned = True
+                if r.status == "issued":
+                    disqualify(r, "Возврат покупки")
     db.commit()
     return {"rows": len(rows), "matched": matched}
 
 
+STATUS_RU = {"waiting": "ждёт выдачи", "issued": "машинка выдана", "cancelled": "отменена",
+             "disqualified": "снята с розыгрыша"}
+
+
 @app.get("/api/admin/export.csv", dependencies=[Depends(require_admin)])
 def export_csv(db: Session = Depends(get_db)):
-    first = first_by_key(db)
     out = io.StringIO()
     w = csv.writer(out, delimiter=";")
-    w.writerow(["Заявка", "Дата", "Телефон", "Телефон подтверждён", "ФН", "ФД", "ФП", "Сумма",
-                "Комбо", "Покупка сверена", "Игрушка выдана", "Возврат", "Статус", "Причина",
-                "Дубликат заявки", "Номера участников"])
+    w.writerow(["Заявка", "Дата", "АЗС", "Телефон", "Телефон подтверждён", "ФН", "ФД", "ФМ", "Сумма",
+                "Статус", "Причина", "Выдано", "АЗС выдачи", "Покупка сверена", "Возврат",
+                "Номер участника"])
     yes = lambda v: "да" if v else "нет"
-    for a in db.scalars(select(Application).order_by(Application.created_at)):
-        s = serialize(a, first)
-        w.writerow([s["code"], s["created_at"], s["phone"], yes(s["phone_verified"]), s["fn"], s["fd"],
-                    s["fp"], s["receipt_sum"], s["combos"], yes(s["check_purchase"]),
-                    yes(s["check_issued"]), yes(s["returned"]), s["status"], s["reject_reason"],
-                    s["duplicate_of"], " ".join(s["numbers"])])
+    for r in db.scalars(select(Registration).order_by(Registration.created_at)):
+        w.writerow([r.code, as_utc(r.created_at).isoformat(), r.station, r.phone, yes(r.phone_verified),
+                    r.fn, r.fd, r.fm, r.receipt_sum, STATUS_RU[r.status], r.status_reason,
+                    as_utc(r.issued_at).isoformat() if r.issued_at else "", r.issued_station,
+                    yes(r.check_purchase), yes(r.returned), r.entry.number if r.entry else ""])
     return Response("﻿" + out.getvalue(), media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": 'attachment; filename="registry.csv"'})
 

@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 130" role="img" aria-label="Новогодний грузовик-караван">
+  <ellipse cx="160" cy="122" rx="150" ry="6" fill="#000" opacity=".22"/>
+  <!-- прицеп -->
+  <rect x="8" y="14" width="200" height="86" rx="8" fill="#FFFFFF"/>
+  <rect x="8" y="88" width="200" height="12" fill="#D9ECF8"/>
+  <path d="M8 26 Q58 44 108 26 T208 26" fill="none" stroke="#7FB9DD" stroke-width="2"/>
+  <g>
+    <circle cx="20" cy="31" r="5" fill="#F07DB8"/><circle cx="44" cy="38" r="5" fill="#FFD84D"/>
+    <circle cx="70" cy="40" r="5" fill="#008ED7"/><circle cx="96" cy="33" r="5" fill="#F07DB8"/>
+    <circle cx="120" cy="28" r="5" fill="#FFD84D"/><circle cx="146" cy="36" r="5" fill="#008ED7"/>
+    <circle cx="172" cy="38" r="5" fill="#F07DB8"/><circle cx="196" cy="31" r="5" fill="#FFD84D"/>
+  </g>
+  <!-- снежинка на борту -->
+  <g transform="translate(108 66)" stroke="#008ED7" stroke-width="4" stroke-linecap="round">
+    <path d="M0 -20 V20 M-17 -10 L17 10 M-17 10 L17 -10"/>
+    <path d="M-6 -16 L0 -10 L6 -16 M-6 16 L0 10 L6 16" fill="none" stroke-width="3"/>
+  </g>
+  <!-- кабина -->
+  <path d="M214 34 H262 Q274 34 280 46 L300 74 Q306 80 306 90 V100 H214 Z" fill="#008ED7"/>
+  <path d="M226 44 H258 Q266 44 270 52 L282 72 H226 Z" fill="#CFEAFB"/>
+  <path d="M232 50 L244 50" stroke="#fff" stroke-width="3" stroke-linecap="round" opacity=".8"/>
+  <rect x="294" y="80" width="10" height="7" rx="2" fill="#FFD84D"/>
+  <rect x="214" y="92" width="92" height="8" fill="#006AA6"/>
+  <!-- колёса -->
+  <g>
+    <circle cx="50" cy="104" r="16" fill="#0A2540"/><circle cx="50" cy="104" r="7" fill="#C9D6E2"/>
+    <circle cx="160" cy="104" r="16" fill="#0A2540"/><circle cx="160" cy="104" r="7" fill="#C9D6E2"/>
+    <circle cx="268" cy="104" r="16" fill="#0A2540"/><circle cx="268" cy="104" r="7" fill="#C9D6E2"/>
+  </g>
+</svg>

@@ -1,7 +1,10 @@
-// Мобильная форма регистрации чека.
+// Мобильная форма регистрации чека: клиент заполняет её на кассе до выдачи машинки.
 
 const $ = id => document.getElementById(id);
-const state = { photo: null, fiscal: null, smsRequired: true, smsSentTo: null };
+const state = { photo: null, fiscal: null };
+const STATION = new URLSearchParams(location.search).get('azs') || '';
+const TICKET_KEY = 'karavan_ticket';
+let pollTimer = null;
 
 function show(el, on = true) { el.classList.toggle('hidden', !on); }
 
@@ -40,11 +43,11 @@ function parseReceiptQr(text) {
   const f = {
     fn: get('fn_number', 'fn'),
     fd: get('fd_number', 'i'),
-    fp: get('fm', 'fp'),
+    fm: get('fm', 'fp'),
     sum: get('sum', 's'),
     date: get('date', 't'),
   };
-  return f.fn && f.fd && f.fp ? f : null;
+  return f.fn && f.fd && f.fm ? f : null;
 }
 
 function loadImage(file) {
@@ -77,7 +80,10 @@ function decodeQr(img) {
   return null;
 }
 
-api('/api/config').then(c => { state.smsRequired = c.sms_required; }).catch(() => {});
+if (STATION) {
+  $('stationChip').textContent = 'АЗС №' + STATION;
+  show($('stationChip'));
+}
 
 $('photo').addEventListener('change', async e => {
   const file = e.target.files[0];
@@ -105,7 +111,7 @@ $('photo').addEventListener('change', async e => {
       status.textContent = `QR-код чека распознан: ФД № ${state.fiscal.fd}, сумма ${state.fiscal.sum} сом`;
     } else {
       status.className = 'qr-status warn';
-      status.textContent = 'QR-код не распознан. Ничего страшного, мы проверим чек вручную. Убедитесь, что чек виден целиком.';
+      status.textContent = 'QR-код не распознан. Можно отправить так: кассир сверит чек вручную.';
     }
     race('update');
   } catch {
@@ -123,38 +129,7 @@ $('phone').addEventListener('input', e => {
   // Не мешаем стирать: группируем цифры только при наборе.
   if (!e.inputType || !e.inputType.startsWith('delete')) $('phone').value = formatPhone($('phone').value);
   setError('phoneErr');
-  // Номер поменяли: код нужно запросить заново.
-  if (state.smsSentTo && normalizePhone($('phone').value) !== state.smsSentTo) {
-    state.smsSentTo = null;
-    show($('smsBlock'), false);
-    $('submit').textContent = 'Отправить заявку';
-  }
 });
-
-$('resend').addEventListener('click', () => sendSms(state.smsSentTo));
-
-$('rulesLink').addEventListener('click', e => {
-  e.preventDefault();
-  $('rules').open = true;
-  $('rules').scrollIntoView({ behavior: 'smooth' });
-});
-
-async function sendSms(phone) {
-  const r = await api('/api/sms/send', { method: 'POST', json: { phone } });
-  state.smsSentTo = phone;
-  show($('smsBlock'));
-  $('smsHint').textContent = r.demo_code
-    ? `Демо: SMS не отправляется, ваш код ${r.demo_code}`
-    : `Отправили код на ${phone}`;
-  $('submit').textContent = 'Подтвердить и отправить';
-  $('smsCode').value = '';
-  $('smsCode').focus();
-}
-
-function busy(on, text) {
-  $('submit').disabled = on;
-  if (text) $('submit').textContent = text;
-}
 
 $('form').addEventListener('submit', async e => {
   e.preventDefault();
@@ -162,67 +137,108 @@ $('form').addEventListener('submit', async e => {
   const consent = $('consent').checked;
   setError('phoneErr', phone ? '' : 'Введите номер в формате +996 XXX XXX XXX');
   setError('photoErr', state.photo ? '' : 'Загрузите фото чека');
-  setError('consentErr', consent ? '' : 'Нужно согласие на обработку данных');
-  setError('smsErr');
+  setError('consentErr', consent ? '' : 'Нужно принять правила акции и согласие на обработку данных');
   setError('submitErr');
   if (!phone || !state.photo || !consent) return;
 
-  const label = $('submit').textContent;
+  $('submit').disabled = true;
+  $('submit').textContent = 'Проверяем номер и чек…';
   try {
-    if (state.smsRequired && state.smsSentTo !== phone) {
-      busy(true, 'Отправляем код…');
-      await sendSms(phone);
-      return;
-    }
-    if (state.smsRequired && !/^\d{4}$/.test($('smsCode').value.trim())) {
-      setError('smsErr', 'Введите 4 цифры из SMS');
-      return;
-    }
-
-    busy(true, 'Отправляем заявку…');
     const fd = new FormData();
     fd.append('phone', phone);
     fd.append('consent', 'true');
-    fd.append('sms_code', $('smsCode').value.trim());
+    fd.append('station', STATION);
     fd.append('photo', state.photo, 'receipt.jpg');
     if (state.fiscal) {
       fd.append('fn', state.fiscal.fn);
       fd.append('fd', state.fiscal.fd);
-      fd.append('fp', state.fiscal.fp);
+      fd.append('fm', state.fiscal.fm);
       fd.append('receipt_sum', state.fiscal.sum || '');
       fd.append('receipt_date', state.fiscal.date || '');
     }
-    const r = await api('/api/applications', { method: 'POST', form: fd });
-
-    $('appId').textContent = r.code;
-    show($('formCard'), false);
-    show($('successCard'));
-    $('roadWrap').scrollIntoView({ behavior: 'smooth' });
-    race('finish');
+    const r = await api('/api/registrations', { method: 'POST', form: fd });
+    saveTicket(r.token);
+    openTicket(r);
   } catch (err) {
-    const smsProblem = /код/i.test(err.message);
-    setError(smsProblem ? 'smsErr' : 'submitErr', err.message);
+    setError('submitErr', err.message);
   } finally {
-    busy(false);
-    if ($('submit').textContent.endsWith('…')) $('submit').textContent = label;
+    $('submit').disabled = false;
+    $('submit').textContent = 'Зарегистрировать чек';
   }
 });
 
+// ---------- экран заявки: его клиент показывает кассиру ----------
+
+function saveTicket(token) {
+  try { localStorage.setItem(TICKET_KEY, token); } catch {}
+}
+
+function loadTicket() {
+  try { return localStorage.getItem(TICKET_KEY); } catch { return null; }
+}
+
+function forgetTicket() {
+  try { localStorage.removeItem(TICKET_KEY); } catch {}
+}
+
+function openTicket(r) {
+  show($('formCard'), false);
+  show($('ticket'));
+  document.querySelectorAll('[data-code]').forEach(el => { el.textContent = r.code; });
+  renderStatus(r, false);
+  $('roadWrap').scrollIntoView({ behavior: 'smooth' });
+  race('arrive');
+  clearInterval(pollTimer);
+  pollTimer = setInterval(poll, 4000);
+}
+
+function renderStatus(r, celebrate) {
+  show($('stWaiting'), r.status === 'waiting');
+  show($('stIssued'), r.status === 'issued' || r.status === 'disqualified');
+  show($('stCancelled'), r.status === 'cancelled');
+  if (r.entry) $('entryNumber').textContent = 'Номер участника ' + r.entry;
+  show($('entryNumber'), !!r.entry);
+  if (r.status === 'cancelled') $('cancelReason').textContent = r.reason || '';
+  if (r.status !== 'waiting') {
+    clearInterval(pollTimer);
+    if (r.status === 'issued' && celebrate) race('finish');
+  }
+}
+
+async function poll() {
+  const token = loadTicket();
+  if (!token) return;
+  try {
+    const r = await api('/api/registrations/status/' + encodeURIComponent(token));
+    renderStatus(r, true);
+  } catch {}
+}
+
 $('again').addEventListener('click', () => {
+  forgetTicket();
   $('form').reset();
-  Object.assign(state, { photo: null, fiscal: null, smsSentTo: null });
+  Object.assign(state, { photo: null, fiscal: null });
   show($('preview'), false);
   show($('qrStatus'), false);
-  show($('smsBlock'), false);
   show($('camIcon'));
   show($('uploadHint'));
   $('uploadBox').classList.remove('has-photo');
   $('uploadText').textContent = 'Сфотографировать чек';
-  $('submit').textContent = 'Отправить заявку';
-  show($('successCard'), false);
+  show($('ticket'), false);
   show($('formCard'));
   race('reset');
 });
+
+// Если клиент случайно обновил страницу на кассе, показываем его заявку снова.
+(async () => {
+  const token = loadTicket();
+  if (!token) return;
+  try {
+    const r = await api('/api/registrations/status/' + encodeURIComponent(token));
+    if (r.status === 'waiting') openTicket(r);
+    else forgetTicket();
+  } catch { forgetTicket(); }
+})();
 
 // Машинка на дороге-прогрессе (assets/fx.js). Без анимаций форма работает так же.
 function race(action) {

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
   <title>Реестр заявок</title>
-  <link rel="icon" href="img/car.svg" type="image/svg+xml">
+  <link rel="icon" href="img/truck.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=Russo+One&display=swap" rel="stylesheet">
@@ -13,7 +13,7 @@
 </head>
 <body>
   <div class="topbar">
-    <h1><img src="img/car.svg" alt="">Реестр заявок</h1>
+    <h1><img src="img/logo-white.svg" alt="Partner Neft">Реестр заявок</h1>
     <div class="actions hidden" id="toolbar" style="margin:0">
       <button class="btn small" id="refresh">Обновить</button>
       <button class="btn small" id="export">Выгрузить CSV</button>
@@ -22,14 +22,14 @@
   </div>
 
   <main class="login" id="loginView">
-    <img src="img/car.svg" alt="">
+    <img src="img/truck.svg" alt="">
     <form class="panel" id="loginForm">
       <h2 style="margin-top:0">Вход для маркетинга</h2>
       <label for="password">Пароль</label>
       <input id="password" type="password" autocomplete="current-password" required>
       <button class="btn" type="submit" id="loginBtn">Войти</button>
       <div class="error hidden" id="loginErr"></div>
-      <p class="hint">Первый вход после простоя может занять до минуты: бесплатный сервер просыпается.</p>
+      <p class="hint">Первый вход после простоя может занять до минуты: сервер просыпается.</p>
     </form>
   </main>
 
@@ -38,11 +38,10 @@
 
     <section class="card">
       <h2>Сверка с выгрузками кассы</h2>
-      <p class="hint" style="margin-top:0">CSV с колонками <code>fn;fd;fp</code>, для продаж ещё <code>qty</code> — число комбо в чеке. Продажи отмечают «покупка сверена», выдачи отмечают «игрушка выдана», возвраты снимают заявку с розыгрыша.</p>
+      <p class="hint" style="margin-top:0">CSV с колонками <code>fn;fd;fm</code>. Продажи отмечают «покупка сверена», возвраты снимают заявку с розыгрыша. Номер телефона при этом остаётся занятым: машинка уже выдана.</p>
       <div class="filters" style="margin:0">
         <select id="importKind">
           <option value="sales">Продажи комбо</option>
-          <option value="issued">Выдача машинок</option>
           <option value="returns">Возвраты</option>
         </select>
         <label class="btn small secondary" style="margin:0">
@@ -53,26 +52,26 @@
     </section>
 
     <div class="filters">
-      <input type="search" id="q" placeholder="Поиск: телефон, № заявки, ФН/ФД/ФМ, номер участника">
+      <input type="search" id="q" placeholder="Поиск: телефон, код заявки, ФН/ФД/ФМ, номер участника">
       <select id="statusFilter">
         <option value="">Все статусы</option>
-        <option value="pending">На проверке</option>
-        <option value="approved">Допущены</option>
-        <option value="rejected">Отклонены</option>
-        <option value="dup">Дубликаты чеков</option>
+        <option value="waiting">Ждут выдачи</option>
+        <option value="issued">Машинка выдана</option>
+        <option value="unchecked">Выдана, покупка не сверена</option>
+        <option value="cancelled">Отменены</option>
+        <option value="disqualified">Сняты с розыгрыша</option>
       </select>
     </div>
 
     <div id="list"></div>
 
     <section class="card">
-      <h2>Порядок проверки</h2>
+      <h2>Как устроена проверка</h2>
       <ul class="steps">
-        <li><b>Покупка была</b>: сверяем фискальные данные чека с выгрузкой продаж (позиция «Комбо Coca-Cola»).</li>
-        <li><b>Чек не отправлен повторно</b>: совпадение ФН + ФД + ФМ помечается как дубликат, даже если фото обрезали или пересняли. Допустить один чек дважды система не даст. В спорных случаях просим оригинал или электронный чек.</li>
-        <li><b>Игрушка выдана</b>: сверяем чек с отметкой о выдаче на кассе.</li>
-        <li><b>Покупку не вернули</b>: перед розыгрышем загружаем выгрузку возвратов, такие заявки снимаются автоматически.</li>
-        <li>Номера участников выдаются при допуске, по одному на каждое комбо в чеке.</li>
+        <li><b>При регистрации</b> система проверяет номер и чек по общей базе всех АЗС. Номер, который уже получил машинку, и уже зарегистрированный чек не пропускаются, даже при одновременной регистрации на двух АЗС.</li>
+        <li><b>На кассе</b> кассир видит одобренную заявку, выдаёт машинку и отмечает выдачу. В этот момент номер получает одну заявку на розыгрыш.</li>
+        <li><b>Если машинку не выдали</b> за 3 часа или кассир отменил заявку, номер и чек освобождаются.</li>
+        <li><b>Перед розыгрышем</b> загрузите выгрузки продаж и возвратов. В розыгрыше участвуют заявки со статусом «машинка выдана».</li>
       </ul>
     </section>
   </main>
