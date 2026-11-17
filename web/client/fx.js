@@ -6,9 +6,8 @@ const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 if (window.gsap && !reduceMotion) {
   const tl = gsap.timeline({ defaults: { ease: 'power3.out' } });
   tl.from('.hero .reveal', { y: 24, opacity: 0, duration: .6, stagger: .08 })
-    .from('.combo-in .piece', { y: 30, opacity: 0, scale: .7, duration: .5, stagger: .1, ease: 'back.out(2)' }, '-=.35')
-    .from('#heroCar', { y: 40, scale: .6, opacity: 0, duration: .7, ease: 'back.out(1.8)' }, '-=.1')
-    .from('.combo-out .piece', { scale: 0, opacity: 0, duration: .45, stagger: .12, ease: 'back.out(2.5)' }, '-=.3')
+    .from('.combo .piece', { y: 20, opacity: 0, scale: .7, duration: .45, stagger: .08, ease: 'back.out(2)' }, '-=.35')
+    .from('#heroCar', { x: -40, scale: .6, opacity: 0, duration: .6, ease: 'back.out(1.8)' }, '-=.1')
     .from('#truck', { x: '-120vw', duration: 1.6, ease: 'power2.out' }, '-=.6')
     .to('#truck', { rotate: -1.5, y: -3, duration: .14, yoyo: true, repeat: 1, transformOrigin: '90% 100%' });
 }
