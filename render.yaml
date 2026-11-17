@@ -24,6 +24,9 @@ services:
         generateValue: true
       - key: SERVE_WEB
         value: "false"
+      # Подтверждение номера кодом выключено.
+      - key: SMS_REQUIRED
+        value: "false"
       - key: DRAW_RESET_ALLOWED
         value: "true"
       - key: ALLOWED_ORIGINS
