@@ -2,7 +2,7 @@
 
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-// Один заход при загрузке: текст, затем собирается комбо, из него появляется машинка, въезжает караван.
+// Один заход при загрузке: текст, затем собирается комбо, из него появляется трак, въезжает караван.
 if (window.gsap && !reduceMotion) {
   const tl = gsap.timeline({ defaults: { ease: 'power3.out' } });
   tl.from('.hero .reveal', { y: 24, opacity: 0, duration: .6, stagger: .08 })

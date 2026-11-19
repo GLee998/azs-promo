@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
   <title>Тестовые чеки</title>
-  <link rel="icon" href="shared/img/3d/automobile_3d.png" type="image/png">
+  <link rel="icon" href="shared/img/3d/delivery_truck_3d.png" type="image/png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=Russo+One&family=Unbounded:wght@500;600;700&display=swap" rel="stylesheet">
@@ -59,7 +59,7 @@
       $('receipt').innerHTML = `
         <div class="stamp">ТЕСТОВЫЙ ОБРАЗЕЦ</div>
         <div style="text-align:center">АЗС · ДЕМО<br>Кассовый чек · Приход</div><hr>
-        <div class="line"><span>Комбо «Караван новогодних чудес»</span><span>${r.sum} сом</span></div>
+        <div class="line"><span>Комбо «Караван Coca-Cola»</span><span>${r.sum} сом</span></div>
         <div class="line"><b>ИТОГО</b><b>${r.sum} сом</b></div><hr>
         <div>ФН ${r.fn}</div><div>ФД ${r.fd}</div><div>ФМ ${r.fp}</div>
         <div id="rqr">${qr.createSvgTag({ cellSize: 5, margin: 4, scalable: false })}</div>`;
