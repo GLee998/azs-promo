@@ -129,15 +129,14 @@ img { max-width: 100%; }
 }
 .lang-switch button[aria-pressed="true"] { background: var(--white); color: var(--night); }
 .lang-switch button:focus-visible { outline: 2px solid var(--pink-light); outline-offset: 2px; }
-.hero h1 { font-size: clamp(36px, 9.4vw, 68px); font-weight: 700; line-height: 1.02; margin: 26px 0 10px; }
-.slogan { margin: 0 0 14px; font-size: clamp(18px, 4.8vw, 22px); font-weight: 600; line-height: 1.3; color: #FFE1F0; }
+.hero h1 { font-size: clamp(28px, 7.4vw, 54px); font-weight: 700; line-height: 1.08; margin: 26px 0 14px; max-width: 14em; }
 .hero .lead { font-size: 19px; max-width: 26em; margin: 0; color: #E6F2FB; }
 .hero .btn.go { margin-top: 24px; }
 
 /* Комбо одной строкой: френч-дог ×2 + кола ×2 = машинка. */
 .combo {
   position: relative; z-index: 1;
-  display: flex; align-items: center; justify-content: center; gap: clamp(4px, 1.6vw, 12px);
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px clamp(8px, 2.4vw, 16px);
   width: fit-content; max-width: 100%; margin: 0 auto;
   padding: 10px clamp(12px, 3vw, 22px);
   border-radius: 24px;
@@ -148,8 +147,11 @@ img { max-width: 100%; }
 .combo .item { position: relative; flex: none; display: flex; align-items: center; justify-content: center; height: clamp(72px, 19vw, 110px); }
 .combo .item img { width: auto; height: 100%; /* бутылка во всю высоту ячейки */ filter: drop-shadow(0 8px 10px rgba(0,20,50,.45)); }
 .combo .item img.dog { height: 74%; } /* френч-дог поменьше, по центру ячейки */
-.combo .prize { height: auto; }
-.combo .prize img { width: clamp(92px, 25vw, 140px); height: auto; }
+.combo-part { display: flex; align-items: center; gap: clamp(4px, 1.6vw, 12px); }
+.combo .prize { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.combo .prize img { width: clamp(118px, 32vw, 170px); height: auto; filter: drop-shadow(0 8px 10px rgba(0,20,50,.45)); }
+.combo .prize.trip img { width: clamp(52px, 14vw, 72px); }
+.combo .prize small { font-size: 12px; font-weight: 600; line-height: 1.2; color: #E6F2FB; text-align: center; max-width: 9em; }
 .combo .times {
   position: absolute; right: -4px; bottom: -2px;
   padding: 2px 7px; border-radius: 99px; background: var(--pink); color: var(--white);
@@ -280,7 +282,7 @@ input::placeholder { color: #8BA3B6; }
 .ticket { text-align: center; padding-top: 30px; }
 .ticket h2 { font-size: clamp(30px, 8vw, 40px); margin: 6px 0 8px; line-height: 1.05; }
 .ticket p { margin: 0 auto; max-width: 26em; }
-.ticket .finish-car { width: 160px; margin: 0 auto; display: block; }
+.ticket .finish-car { width: 240px; margin: 0 auto; display: block; }
 .ticket .finish-car img { width: 100%; filter: drop-shadow(0 14px 14px rgba(0,58,112,.3)); }
 .ticket .show-cashier { margin: 18px auto 0; padding: 12px 16px; max-width: 26em; border-radius: var(--r-md); background: var(--night); color: var(--white); font-weight: 600; }
 .waiting-line { display: inline-flex; gap: 10px; align-items: center; margin-top: 14px; color: var(--muted); font-size: 15px; }
@@ -332,11 +334,13 @@ input::placeholder { color: #8BA3B6; }
 .how b { grid-area: t; display: block; font-size: 17px; line-height: 1.3; }
 .how span { grid-area: s; display: block; color: var(--muted); font-size: 15px; line-height: 1.45; }
 .how-ico { grid-area: i; align-self: start; width: 56px; height: auto; }
+.how-ico.wide { width: 92px; }
 .how-ico { filter: drop-shadow(0 8px 10px rgba(0,30,60,.22)); }
 @media (max-width: 520px) {
   /* на телефоне текст шага идёт под заголовком на всю ширину карточки */
   .how li { grid-template-columns: 40px 1fr auto; grid-template-areas: "n t i" "s s s"; }
   .how-ico { width: 48px; }
+  .how-ico.wide { width: 78px; }
 }
 .how li:last-child .how-ico { filter: drop-shadow(0 8px 12px rgba(0,0,0,.4)); }
 
@@ -432,8 +436,7 @@ input::placeholder { color: #8BA3B6; }
   background: radial-gradient(120% 90% at 85% 0%, var(--night-2) 0%, var(--night) 60%); }
 .poster-top .logo { height: 40px; margin: 0 auto 6px; display: block; position: relative; }
 .poster-top .logo.cc { height: 30px; margin: 10px auto 0; }
-.poster-top .slogan { color: #FFE1F0; font-weight: 600; margin-bottom: 6px; }
-.poster h1 { font-size: 40px; line-height: 1; margin: 6px 0 10px; position: relative; }
+.poster h1 { font-size: 32px; line-height: 1.1; margin: 6px 0 10px; position: relative; }
 .poster-top p { margin: 0 auto 14px; max-width: 24em; font-size: 17px; position: relative; color: #E6F2FB; }
 .poster-combo { position: relative; display: flex; align-items: center; justify-content: center; gap: 6px; margin: 4px 0 -6px; }
 .poster-combo img { display: block; filter: drop-shadow(0 8px 10px rgba(0,20,50,.4)); }
@@ -443,7 +446,8 @@ input::placeholder { color: #8BA3B6; }
 .poster-combo .item img.dog { height: 74%; }
 .poster-combo .item b { position: absolute; right: 0; bottom: 0; padding: 2px 8px; border-radius: 99px; background: var(--pink); font: 700 13px/1.3 var(--display); }
 .poster-combo .op { font: 600 30px/1 var(--display); color: var(--pink-light); }
-.poster-combo .car { width: 130px; }
+.poster-combo .car { width: 170px; }
+.poster-combo .trip { width: 64px; }
 .poster .hero-road { margin: 0 -28px; height: 26px; }
 .poster-body { padding: 24px 28px 28px; text-align: center; }
 .poster-body .scan { font: 400 24px/1.1 var(--display); margin: 0 0 16px; }

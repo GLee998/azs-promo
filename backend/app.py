@@ -338,9 +338,9 @@ def verify_sms(db: Session, phone: str, code: str) -> None:
 
 def phone_taken_message(r: Registration) -> str:
     if r.status == "waiting":
-        return (f"Этот номер уже зарегистрирован, заявка {r.code} ждёт выдачи машинки. "
+        return (f"Этот номер уже зарегистрирован, заявка {r.code} ждёт выдачи игрушки. "
                 "Покажите её кассиру.")
-    return "Этот номер уже получил машинку. По условиям акции машинка выдаётся один раз на номер."
+    return "Этот номер уже получил игрушечный караван. По условиям акции игрушка выдаётся один раз на номер."
 
 
 def release_expired(db: Session, phone: str, fiscal_key: str | None) -> None:
@@ -351,7 +351,7 @@ def release_expired(db: Session, phone: str, fiscal_key: str | None) -> None:
     for r in db.scalars(select(Registration).where(Registration.status == "waiting")
                         .where(conds[0] if len(conds) == 1 else (conds[0] | conds[1]))):
         if r.expired():
-            r.release("cancelled", "Машинку не забрали вовремя")
+            r.release("cancelled", "Игрушку не забрали вовремя")
     db.flush()
 
 
@@ -423,7 +423,7 @@ def registration_status(token: str, db: Session = Depends(get_db)):
     if not r:
         raise HTTPException(404, "Заявка не найдена")
     if r.expired():
-        r.release("cancelled", "Машинку не забрали вовремя")
+        r.release("cancelled", "Игрушку не забрали вовремя")
         db.commit()
     return {"code": r.code, "status": r.status, "reason": r.status_reason,
             "entry": r.entry.number if r.entry else None}
@@ -468,7 +468,7 @@ def cashier_queue(db: Session = Depends(get_db)):
     changed = False
     for r in waiting:
         if r.expired():
-            r.release("cancelled", "Машинку не забрали вовремя")
+            r.release("cancelled", "Игрушку не забрали вовремя")
             changed = True
     if changed:
         db.commit()

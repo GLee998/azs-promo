@@ -84,7 +84,7 @@ def test_flow():
 
     # Повторная покупка тем же номером на другой АЗС — машинки нет
     r = register("+996700111223", station="2", fn="9", fd="9", fm="9")
-    assert r.status_code == 409 and "уже получил машинку" in r.json()["detail"]
+    assert r.status_code == 409 and "уже получил игрушечный караван" in r.json()["detail"]
 
     # QR не распознан: реквизиты вводит кассир, повторный чек при этом тоже ловится
     manual = register("772000112")
