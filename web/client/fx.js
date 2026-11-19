@@ -20,7 +20,7 @@ const Race = (() => {
   // k — сколько этапов пройдено (0..3); finished — машинка проехала за флаг.
   function place(k, finished) {
     const pct = finished ? 100 : (k / 3) * 78;
-    racer.style.left = `calc(${pct}% - ${finished ? 70 : pct * 0.64}px + 6px)`;
+    racer.style.left = `calc(${pct}% - ${finished ? 98 : pct * 0.9}px + 6px)`;
     steps.forEach((li, i) => li.classList.toggle('done', finished || i < k));
     if (k !== last && last !== -1) {
       racer.classList.remove('revving');
