@@ -149,7 +149,7 @@ img { max-width: 100%; }
 .combo .item img { width: clamp(56px, 15vw, 90px); filter: drop-shadow(0 8px 10px rgba(0,20,50,.45)); }
 .combo .prize img { width: clamp(124px, 34vw, 220px); }
 .combo .times {
-  position: absolute; right: -2px; top: 0;
+  position: absolute; right: -4px; bottom: -2px;
   padding: 2px 7px; border-radius: 99px; background: var(--pink); color: var(--white);
   font: 700 12px/1.3 var(--display); box-shadow: 0 4px 10px -4px rgba(174,74,132,.9);
 }
@@ -439,7 +439,7 @@ input::placeholder { color: #8BA3B6; }
 .poster-combo img { display: block; filter: drop-shadow(0 8px 10px rgba(0,20,50,.4)); }
 .poster-combo .item { position: relative; }
 .poster-combo .item img { width: 92px; }
-.poster-combo .item b { position: absolute; right: 2px; top: 2px; padding: 2px 8px; border-radius: 99px; background: var(--pink); font: 700 13px/1.3 var(--display); }
+.poster-combo .item b { position: absolute; right: 0; bottom: 0; padding: 2px 8px; border-radius: 99px; background: var(--pink); font: 700 13px/1.3 var(--display); }
 .poster-combo .op { font: 600 30px/1 var(--display); color: var(--pink-light); }
 .poster-combo .car { width: 190px; }
 .poster .hero-road { margin: 0 -28px; height: 26px; }
