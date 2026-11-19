@@ -146,9 +146,8 @@ img { max-width: 100%; }
 }
 .combo img { display: block; height: auto; }
 .combo .item { position: relative; flex: none; }
-.combo .item img { width: clamp(56px, 15vw, 90px); filter: drop-shadow(0 8px 10px rgba(0,20,50,.45)); }
-.combo .item img.bottle { width: auto; height: clamp(76px, 21vw, 118px); }
-.combo .prize img { width: clamp(124px, 34vw, 220px); }
+.combo .item img { width: auto; height: clamp(72px, 19vw, 110px); /* френч-дог и бутылка одной высоты */ filter: drop-shadow(0 8px 10px rgba(0,20,50,.45)); }
+.combo .prize img { width: clamp(124px, 34vw, 220px); height: auto; }
 .combo .times {
   position: absolute; right: -4px; bottom: -2px;
   padding: 2px 7px; border-radius: 99px; background: var(--pink); color: var(--white);
@@ -439,9 +438,8 @@ input::placeholder { color: #8BA3B6; }
 .poster-combo { position: relative; display: flex; align-items: center; justify-content: center; gap: 6px; margin: 4px 0 -6px; }
 .poster-combo img { display: block; filter: drop-shadow(0 8px 10px rgba(0,20,50,.4)); }
 .poster-combo .item { position: relative; }
-.poster-combo .item img { width: 92px; }
+.poster-combo .item img { width: auto; height: 110px; }
 .poster-combo .item b { position: absolute; right: 0; bottom: 0; padding: 2px 8px; border-radius: 99px; background: var(--pink); font: 700 13px/1.3 var(--display); }
-.poster-combo .item img.bottle { width: auto; height: 120px; }
 .poster-combo .op { font: 600 30px/1 var(--display); color: var(--pink-light); }
 .poster-combo .car { width: 190px; }
 .poster .hero-road { margin: 0 -28px; height: 26px; }
