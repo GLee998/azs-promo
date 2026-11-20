@@ -466,6 +466,14 @@ def test_phone_normalization():
     assert n("+996 700 123") is None
 
 
+def test_health_checks_db():
+    """Health проверяет базу: мониторинг узнает, если API жив, а база недоступна (B7)."""
+    backend.engine = backend.create_engine("sqlite:////nonexistent-dir/x.db")
+    assert client.get("/api/health").status_code == 503
+    fresh_db()
+    assert client.get("/api/health").json() == {"ok": True}
+
+
 if __name__ == "__main__":
     test_flow()
     test_draw()
@@ -484,4 +492,5 @@ if __name__ == "__main__":
     test_session_expiry_and_logout()
     test_manage_cli()
     test_phone_normalization()
+    test_health_checks_db()
     print("OK")

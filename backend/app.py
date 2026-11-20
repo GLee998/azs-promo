@@ -24,10 +24,10 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel
 from sqlalchemy import (Boolean, DateTime, ForeignKey, Index, LargeBinary, String, Text,
-                        create_engine, delete, func, or_, select, update)
+                        create_engine, delete, func, or_, select, text, update)
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.exc import TimeoutError as PoolTimeout
 from sqlalchemy.orm import (DeclarativeBase, Mapped, Session, contains_eager, mapped_column, relationship,
                             selectinload)
@@ -280,7 +280,10 @@ class AuditLog(Base):
     details: Mapped[str | None] = mapped_column(Text)
 
 
-Base.metadata.create_all(engine)
+# Схему Postgres создают и меняют миграции (alembic upgrade head, см. migrations/).
+# SQLite — локальная разработка и тесты: там таблицы создаются сразу.
+if DB_URL.startswith("sqlite"):
+    Base.metadata.create_all(engine)
 
 
 def get_db():
@@ -476,7 +479,12 @@ async def db_overloaded(request, exc):
 
 
 @app.get("/api/health")
-def health():
+def health(db: Session = Depends(get_db)):
+    """Для мониторинга: API отвечает и база доступна."""
+    try:
+        db.execute(text("SELECT 1"))
+    except SQLAlchemyError:
+        raise HTTPException(503, "База данных недоступна")
     return {"ok": True}
 
 
