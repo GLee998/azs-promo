@@ -57,6 +57,8 @@ cd backend && ../.venv/bin/python manage.py add-user admin --role admin   # пе
 
 Свой сервер (VPS) с Docker Compose: Caddy, API и Postgres, бэкапы, мониторинг и тестовый стенд. Пошагово — [deploy/README.md](deploy/README.md).
 
+Тестовый стенд на бесплатном Render описан в `render.yaml` и обновляется при push в `main`. Учётки стенда: `admin` (маркетинг) и `azs1` (кассир АЗС №1), пароли Render генерирует сам: Dashboard → azs-promo-web → Environment → `BOOTSTRAP_ADMIN_PASSWORD` и `BOOTSTRAP_CASHIER_PASSWORD`. Базу, созданную до миграций, стенд при старте переводит под Alembic сам (`manage.py adopt-legacy-db`).
+
 Тесты: `cd backend && ../.venv/bin/python test_app.py`, `node --test web/client/*.test.js web/shared/*.test.js` и `bash deploy/tests/test_scripts.sh`.
 
 ## Настройки API (переменные окружения)

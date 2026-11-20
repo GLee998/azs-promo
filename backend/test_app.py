@@ -546,6 +546,46 @@ def test_photo_exif_orientation_kept():
     assert Image.open(io.BytesIO(thumb)).size == (240, 480)
 
 
+def test_adopt_legacy_db():
+    """База тестового стенда, созданная до миграций, переходит под Alembic без потери заявок."""
+    import contextlib, manage
+    fresh_db_file()
+    register("+996555000701", fn="11", fd="1", fm="1")
+    with backend.engine.begin() as conn:  # как было до этой ветки: без превью, новых таблиц и индексов
+        for table in ("audit_log", "staff_sessions", "staff_users", "rate_hits"):
+            conn.execute(backend.text(f"DROP TABLE {table}"))
+        conn.execute(backend.text("DROP INDEX ix_registrations_fiscal"))
+        conn.execute(backend.text("ALTER TABLE registration_photos DROP COLUMN thumb"))
+    with contextlib.redirect_stdout(io.StringIO()):
+        manage.main(["adopt-legacy-db"])
+        manage.main(["adopt-legacy-db"])  # повторный запуск ничего не ломает
+    from sqlalchemy import inspect
+    insp = inspect(backend.engine)
+    assert "thumb" in {c["name"] for c in insp.get_columns("registration_photos")}
+    assert {"staff_users", "staff_sessions", "audit_log", "rate_hits"} <= set(insp.get_table_names())
+    assert "ix_registrations_fiscal" in {i["name"] for i in insp.get_indexes("registrations")}
+    with backend.engine.connect() as conn:
+        assert conn.execute(backend.text("SELECT version_num FROM alembic_version")).scalar() == "0001"
+        assert conn.execute(backend.text("SELECT count(*) FROM registrations")).scalar() == 1
+
+
+def test_ensure_user_from_env():
+    """Учётка стенда из переменной окружения: создаётся, а при смене значения пароль обновляется."""
+    import contextlib, manage
+    fresh_db()
+    os.environ["BOOT_PW"] = "first-password"
+    with contextlib.redirect_stdout(io.StringIO()):
+        manage.main(["ensure-user", "azs1", "--role", "cashier", "--station", "1", "--password-env", "BOOT_PW"])
+    assert client.post("/api/auth/login", json={"login": "azs1", "password": "first-password"}).json()["station"] == "1"
+    os.environ["BOOT_PW"] = "second-password"
+    with contextlib.redirect_stdout(io.StringIO()):
+        manage.main(["ensure-user", "azs1", "--role", "cashier", "--station", "1", "--password-env", "BOOT_PW"])
+    assert client.post("/api/auth/login", json={"login": "azs1", "password": "second-password"}).status_code == 200
+    with backend.Session(backend.engine) as db:
+        assert db.scalar(backend.select(backend.func.count()).select_from(backend.StaffUser).where(
+            backend.StaffUser.login == "azs1")) == 1
+
+
 if __name__ == "__main__":
     test_flow()
     test_draw()
@@ -571,4 +611,6 @@ if __name__ == "__main__":
     test_sms_send_disabled_without_sms()
     test_csv_empty_fiscal_row_matches_nothing()
     test_photo_exif_orientation_kept()
+    test_adopt_legacy_db()
+    test_ensure_user_from_env()
     print("OK")
