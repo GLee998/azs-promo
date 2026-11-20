@@ -44,8 +44,9 @@ def _db_url() -> str:
     return url
 
 
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "demo")
-CASHIER_PASSWORD = os.getenv("CASHIER_PASSWORD", "kassa")
+# Сессия сотрудника живёт одну смену, потом нужно войти снова.
+SESSION_TTL = timedelta(hours=int(os.getenv("SESSION_TTL_HOURS", "14")))
+NO_ACCESS = "Нет доступа для этой учётной записи"
 # Подтверждение номера кодом выключено по решению заказчика. Механизм оставлен, чтобы его можно
 # было включить (SMS или WhatsApp), если начнут регистрировать чужие номера.
 SMS_REQUIRED = os.getenv("SMS_REQUIRED", "false").lower() == "true"
@@ -245,6 +246,40 @@ class RateHit(Base):
     hits: Mapped[int] = mapped_column(default=0)
 
 
+class StaffUser(Base):
+    """Сотрудник: кассир конкретной АЗС (role=cashier) или маркетинг (role=admin)."""
+    __tablename__ = "staff_users"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    login: Mapped[str] = mapped_column(String(32), unique=True)
+    password_hash: Mapped[str] = mapped_column(String(200))
+    role: Mapped[str] = mapped_column(String(8))
+    station: Mapped[str | None] = mapped_column(String(32))  # АЗС кассира; выдача отмечается на неё
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class StaffSession(Base):
+    """Вход сотрудника. Хранится только хеш токена: по копии базы войти нельзя."""
+    __tablename__ = "staff_sessions"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("staff_users.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class AuditLog(Base):
+    """Журнал действий сотрудников: кто выдал игрушку, отменил или снял заявку, провёл розыгрыш."""
+    __tablename__ = "audit_log"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    user_id: Mapped[int] = mapped_column(ForeignKey("staff_users.id"))
+    action: Mapped[str] = mapped_column(String(32))
+    registration_id: Mapped[int | None] = mapped_column()
+    details: Mapped[str | None] = mapped_column(Text)
+
+
 Base.metadata.create_all(engine)
 
 
@@ -359,17 +394,65 @@ def bearer(authorization: str) -> str:
     return authorization.removeprefix("Bearer ").strip()
 
 
-def require_admin(authorization: str = Header(default="")) -> None:
-    if not secrets.compare_digest(bearer(authorization).encode(), ADMIN_PASSWORD.encode()):
-        raise HTTPException(401, "Нужен пароль реестра")
+def hash_password(pw: str) -> str:
+    """Пароль сотрудника для базы: scrypt со случайной солью, в виде scrypt$<соль>$<хеш>."""
+    salt = secrets.token_bytes(16)
+    digest = hashlib.scrypt(pw.encode(), salt=salt, n=2**14, r=8, p=1)
+    return f"scrypt${salt.hex()}${digest.hex()}"
 
 
-def require_cashier(authorization: str = Header(default="")) -> None:
-    # Маркетинг тоже может работать в кассовом интерфейсе своим паролем.
-    token = bearer(authorization).encode()
-    if not (secrets.compare_digest(token, CASHIER_PASSWORD.encode())
-            or secrets.compare_digest(token, ADMIN_PASSWORD.encode())):
-        raise HTTPException(401, "Нужен пароль кассира")
+def check_password(pw: str, stored: str) -> bool:
+    try:
+        scheme, salt, digest = stored.split("$")
+        calc = hashlib.scrypt(pw.encode(), salt=bytes.fromhex(salt), n=2**14, r=8, p=1)
+    except ValueError:
+        return False
+    return scheme == "scrypt" and secrets.compare_digest(calc.hex(), digest)
+
+
+# Для несуществующего логина сверяем пароль с этим хешем: ответ занимает столько же времени,
+# и по нему не понять, есть ли такой сотрудник.
+_DUMMY_HASH = hash_password(secrets.token_hex(8))
+
+
+def token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def start_session(db: Session, user: StaffUser) -> tuple[str, datetime]:
+    """Новая сессия сотрудника. Токен отдаётся браузеру один раз, в базе остаётся его хеш."""
+    token = secrets.token_urlsafe(32)
+    expires = now() + SESSION_TTL
+    db.add(StaffSession(token_hash=token_hash(token), user_id=user.id, expires_at=expires))
+    return token, expires
+
+
+def audit(db: Session, user: StaffUser, action: str, registration_id: int | None = None,
+          details: str | None = None) -> None:
+    """Запись в журнал действий. Сохраняется вместе с самим действием, тем же commit."""
+    db.add(AuditLog(user_id=user.id, action=action, registration_id=registration_id, details=details))
+
+
+def current_staff(authorization: str = Header(default=""), db: Session = Depends(get_db)) -> StaffUser:
+    token = bearer(authorization)
+    s = db.get(StaffSession, token_hash(token)) if token else None
+    user = db.get(StaffUser, s.user_id) if s and as_utc(s.expires_at) > now() else None
+    if not user or not user.active:
+        raise HTTPException(401, "Войдите заново")
+    return user
+
+
+def require_cashier(user: StaffUser = Depends(current_staff)) -> StaffUser:
+    # Маркетинг тоже может работать в кассовом интерфейсе своей учёткой.
+    if user.role not in ("cashier", "admin"):
+        raise HTTPException(403, NO_ACCESS)
+    return user
+
+
+def require_admin(user: StaffUser = Depends(current_staff)) -> StaffUser:
+    if user.role != "admin":
+        raise HTTPException(403, NO_ACCESS)
+    return user
 
 
 # ---------- приложение ----------
@@ -581,8 +664,31 @@ def get_reg(db: Session, reg_id: int) -> Registration:
     return r
 
 
-@app.post("/api/cashier/login", dependencies=[Depends(login_rate_limit), Depends(require_cashier)])
-def cashier_login():
+class LoginBody(BaseModel):
+    login: str
+    password: str
+
+
+@app.post("/api/auth/login", dependencies=[Depends(login_rate_limit)])
+def auth_login(body: LoginBody, db: Session = Depends(get_db)):
+    """Вход кассира или маркетинга по личному логину. Возвращает токен сессии, роль и АЗС."""
+    user = db.scalar(select(StaffUser).where(StaffUser.login == body.login.strip().lower()))
+    ok = check_password(body.password, user.password_hash if user else _DUMMY_HASH)
+    if not user or not user.active or not ok:
+        raise HTTPException(401, "Неверный логин или пароль")
+    token, expires = start_session(db, user)
+    audit(db, user, "login")
+    db.commit()
+    return {"token": token, "role": user.role, "station": user.station, "expires_at": expires.isoformat()}
+
+
+@app.post("/api/auth/logout")
+def auth_logout(authorization: str = Header(default=""), db: Session = Depends(get_db)):
+    token = bearer(authorization)
+    s = db.get(StaffSession, token_hash(token)) if token else None
+    if s:
+        db.delete(s)
+        db.commit()
     return {"ok": True}
 
 
@@ -591,8 +697,9 @@ def code_matches(text: str):
     return func.replace(Registration.code, " ", "").contains(text.upper(), autoescape=True)
 
 
-@app.get("/api/cashier/queue", dependencies=[Depends(require_cashier)])
-def cashier_queue(station: str = "", q: str = "", db: Session = Depends(get_db)):
+@app.get("/api/cashier/queue")
+def cashier_queue(station: str = "", q: str = "", user: StaffUser = Depends(require_cashier),
+                  db: Session = Depends(get_db)):
     """Заявки, ожидающие выдачи, и последние выданные, свежие сверху.
 
     Кассир видит заявки своей АЗС и заявки без АЗС (QR без номера кассы). Заявку другой АЗС
@@ -600,7 +707,7 @@ def cashier_queue(station: str = "", q: str = "", db: Session = Depends(get_db))
     """
     if release_all_expired(db):
         db.commit()
-    station = clean_station(station)
+    station = user.station or clean_station(station)  # у кассира АЗС из учётки, маркетинг выбирает сам
     code = "".join(q.split())
     waiting = (select(Registration).options(selectinload(Registration.entry))
                .where(Registration.status == "waiting").order_by(Registration.created_at.desc()))
@@ -646,20 +753,33 @@ class IssueBody(BaseModel):
     fm: str | None = None
 
 
-@app.post("/api/cashier/registrations/{reg_id}/issue", dependencies=[Depends(require_cashier)])
-def cashier_issue(reg_id: int, body: IssueBody, db: Session = Depends(get_db)):
+NOT_WAITING = "Заявка уже не ждёт выдачи. Обновите список."
+
+
+@app.post("/api/cashier/registrations/{reg_id}/issue")
+def cashier_issue(reg_id: int, body: IssueBody, user: StaffUser = Depends(require_cashier),
+                  db: Session = Depends(get_db)):
     r = get_reg(db, reg_id)
     if r.status != "waiting" or r.expired():
-        raise HTTPException(400, "Заявка уже не ждёт выдачи. Обновите список.")
+        raise HTTPException(400, NOT_WAITING)
     if not r.fiscal_key:
         r.set_fiscal(body.fn, body.fd, body.fm, "cashier")
         if not r.fiscal_key:
             raise HTTPException(400, "Введите ФН, ФД и ФМ с бумажного чека")
-    r.status = "issued"
-    r.issued_at = now()
-    r.issued_station = clean_station(body.station) or r.station
-    r.entry = Entry()
+    station = user.station or clean_station(body.station) or r.station
     try:
+        # Статус меняем условным UPDATE: если два кассира нажали «выдано» одновременно,
+        # заявку получит только первый, второй увидит 0 изменённых строк.
+        claimed = db.execute(
+            update(Registration).where(Registration.id == r.id, Registration.status == "waiting")
+            .values(status="issued", issued_at=now(), issued_station=station)
+            .execution_options(synchronize_session=False)).rowcount
+        if not claimed:
+            db.rollback()
+            raise HTTPException(400, NOT_WAITING)
+        r.status, r.issued_at, r.issued_station = "issued", now(), station
+        r.entry = Entry()
+        audit(db, user, "issue", r.id, f"АЗС {station}" if station else None)
         db.commit()
     except IntegrityError:
         db.rollback()
@@ -671,12 +791,14 @@ class ReasonBody(BaseModel):
     reason: str = ""
 
 
-@app.post("/api/cashier/registrations/{reg_id}/cancel", dependencies=[Depends(require_cashier)])
-def cashier_cancel(reg_id: int, body: ReasonBody, db: Session = Depends(get_db)):
+@app.post("/api/cashier/registrations/{reg_id}/cancel")
+def cashier_cancel(reg_id: int, body: ReasonBody, user: StaffUser = Depends(require_cashier),
+                   db: Session = Depends(get_db)):
     r = get_reg(db, reg_id)
     if r.status != "waiting":
         raise HTTPException(400, "Отменить можно только заявку, которая ждёт выдачи")
     r.release("cancelled", body.reason.strip() or "Отменена на кассе")
+    audit(db, user, "cancel", r.id, r.status_reason)
     db.commit()
     return cashier_view(r)
 
@@ -694,11 +816,6 @@ def admin_view(r: Registration) -> dict:
         "check_purchase": r.check_purchase,
         "returned": r.returned,
     }
-
-
-@app.post("/api/admin/login", dependencies=[Depends(login_rate_limit), Depends(require_admin)])
-def admin_login():
-    return {"ok": True}
 
 
 STATUSES = ("waiting", "issued", "cancelled", "disqualified")
@@ -769,10 +886,12 @@ class AdminPatch(BaseModel):
     returned: bool | None = None
 
 
-@app.patch("/api/admin/registrations/{reg_id}", dependencies=[Depends(require_admin)])
-def patch_registration(reg_id: int, body: AdminPatch, db: Session = Depends(get_db)):
+@app.patch("/api/admin/registrations/{reg_id}")
+def patch_registration(reg_id: int, body: AdminPatch, user: StaffUser = Depends(require_admin),
+                       db: Session = Depends(get_db)):
     r = get_reg(db, reg_id)
     data = body.model_dump(exclude_unset=True)
+    audit(db, user, "patch", r.id, ", ".join(f"{k}={v}" for k, v in data.items()))
     if "check_purchase" in data:
         r.check_purchase = data["check_purchase"]
     if "returned" in data:
@@ -790,18 +909,20 @@ def disqualify(r: Registration, reason: str) -> None:
     r.entry = None
 
 
-@app.post("/api/admin/registrations/{reg_id}/disqualify", dependencies=[Depends(require_admin)])
-def admin_disqualify(reg_id: int, body: ReasonBody, db: Session = Depends(get_db)):
+@app.post("/api/admin/registrations/{reg_id}/disqualify")
+def admin_disqualify(reg_id: int, body: ReasonBody, user: StaffUser = Depends(require_admin),
+                     db: Session = Depends(get_db)):
     r = get_reg(db, reg_id)
     if r.status != "issued":
         raise HTTPException(400, "Снять с розыгрыша можно только заявку с выданной машинкой")
     disqualify(r, body.reason.strip() or "Снята маркетингом")
+    audit(db, user, "disqualify", r.id, r.status_reason)
     db.commit()
     return admin_view(r)
 
 
-@app.post("/api/admin/registrations/{reg_id}/restore", dependencies=[Depends(require_admin)])
-def admin_restore(reg_id: int, db: Session = Depends(get_db)):
+@app.post("/api/admin/registrations/{reg_id}/restore")
+def admin_restore(reg_id: int, user: StaffUser = Depends(require_admin), db: Session = Depends(get_db)):
     r = get_reg(db, reg_id)
     if r.status != "disqualified":
         raise HTTPException(400, "Вернуть в розыгрыш можно только снятую заявку")
@@ -810,6 +931,7 @@ def admin_restore(reg_id: int, db: Session = Depends(get_db)):
     r.status = "issued"
     r.status_reason = None
     r.entry = Entry()
+    audit(db, user, "restore", r.id)
     db.commit()
     return admin_view(r)
 
@@ -824,8 +946,9 @@ def read_csv_rows(raw: bytes) -> list[dict]:
     return [{(k or "").strip().lower(): (v or "").strip() for k, v in row.items()} for row in reader]
 
 
-@app.post("/api/admin/import/{kind}", dependencies=[Depends(require_admin)])
-def import_csv(kind: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
+@app.post("/api/admin/import/{kind}")
+def import_csv(kind: str, file: UploadFile = File(...), user: StaffUser = Depends(require_admin),
+               db: Session = Depends(get_db)):
     """Сверка с выгрузками кассы. CSV с колонками fn;fd;fm (колонка fp тоже подходит вместо fm)."""
     if kind not in ("sales", "returns"):
         raise HTTPException(404, "Неизвестный тип выгрузки")
@@ -845,6 +968,7 @@ def import_csv(kind: str, file: UploadFile = File(...), db: Session = Depends(ge
                 r.returned = True
                 if r.status == "issued":
                     disqualify(r, "Возврат покупки")
+    audit(db, user, "import", details=f"{kind}: строк {len(rows)}, совпало {matched}")
     db.commit()
     return {"rows": len(rows), "matched": matched}
 
@@ -869,6 +993,22 @@ def export_csv(db: Session = Depends(get_db)):
                     yes(r.check_purchase), yes(r.returned), r.entry.number if r.entry else ""])
     return Response("﻿" + out.getvalue(), media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": 'attachment; filename="registry.csv"'})
+
+
+@app.get("/api/admin/audit.csv", dependencies=[Depends(require_admin)])
+def audit_csv(db: Session = Depends(get_db)):
+    """Журнал действий сотрудников для проверки спорных выдач и розыгрыша."""
+    out = io.StringIO()
+    w = csv.writer(out, delimiter=";")
+    w.writerow(["Время", "Сотрудник", "Действие", "Заявка", "Подробности"])
+    rows = db.execute(select(AuditLog, StaffUser.login, Registration.code)
+                      .join(StaffUser, AuditLog.user_id == StaffUser.id)
+                      .outerjoin(Registration, AuditLog.registration_id == Registration.id)
+                      .order_by(AuditLog.id))
+    for log, login, code in rows:
+        w.writerow([as_utc(log.at).isoformat(), login, log.action, code or "", log.details or ""])
+    return Response("\ufeff" + out.getvalue(), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": 'attachment; filename="audit.csv"'})
 
 
 # ---------- розыгрыш ----------
@@ -923,8 +1063,8 @@ class DrawBody(BaseModel):
     only_checked: bool = True
 
 
-@app.post("/api/admin/draw", dependencies=[Depends(require_admin)])
-def run_draw(body: DrawBody, db: Session = Depends(get_db)):
+@app.post("/api/admin/draw")
+def run_draw(body: DrawBody, user: StaffUser = Depends(require_admin), db: Session = Depends(get_db)):
     if current_draw(db):
         raise HTTPException(400, "Розыгрыш уже проведён. Победителя можно только переиграть.")
     pool = sorted(eligible(db, body.only_checked), key=lambda r: r.entry.id)
@@ -938,12 +1078,14 @@ def run_draw(body: DrawBody, db: Session = Depends(get_db)):
     d.winners = [DrawWinner(place=i + 1, registration_id=r.id, entry_number=r.entry.number)
                  for i, r in enumerate(picked)]
     db.add(d)
+    audit(db, user, "draw", details=f"участников {len(pool)}, хеш {d.entries_hash}")
     db.commit()
     return draw_view(d)
 
 
-@app.post("/api/admin/draw/winners/{winner_id}/redraw", dependencies=[Depends(require_admin)])
-def redraw_winner(winner_id: int, body: ReasonBody, db: Session = Depends(get_db)):
+@app.post("/api/admin/draw/winners/{winner_id}/redraw")
+def redraw_winner(winner_id: int, body: ReasonBody, user: StaffUser = Depends(require_admin),
+                  db: Session = Depends(get_db)):
     """Переигрываем одно место: например, победитель не вышел на связь или снят с розыгрыша."""
     w = db.get(DrawWinner, winner_id)
     if not w or w.replaced_reason:
@@ -959,6 +1101,7 @@ def redraw_winner(winner_id: int, body: ReasonBody, db: Session = Depends(get_db
         raise HTTPException(400, "Не осталось участников для переигрывания")
     r = secrets.SystemRandom().choice(pool)
     w.replaced_reason = reason
+    audit(db, user, "redraw", w.registration_id, f"место {w.place}: {reason}")
     d.winners.append(DrawWinner(place=w.place, registration_id=r.id, entry_number=r.entry.number))
     db.commit()
     return draw_view(d)
@@ -974,13 +1117,14 @@ def draw_entries(db: Session = Depends(get_db)):
                     headers={"Content-Disposition": 'attachment; filename="draw-entries.txt"'})
 
 
-@app.delete("/api/admin/draw", dependencies=[Depends(require_admin)])
-def reset_draw(db: Session = Depends(get_db)):
+@app.delete("/api/admin/draw")
+def reset_draw(user: StaffUser = Depends(require_admin), db: Session = Depends(get_db)):
     if not DRAW_RESET_ALLOWED:
         raise HTTPException(403, "Сброс розыгрыша отключён")
     d = current_draw(db)
     if d:
         db.delete(d)
+        audit(db, user, "draw_reset")
         db.commit()
     return {"ok": True}
 

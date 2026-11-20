@@ -27,5 +27,20 @@ async function api(path, { method = 'GET', json, form, token, raw } = {}) {
   return raw ? res : res.json();
 }
 
+// Вход сотрудника по личному логину. Реестр и розыгрыш открыты только маркетингу (requireAdmin).
+async function staffLogin(login, password, requireAdmin = false) {
+  const r = await api('/api/auth/login', { method: 'POST', json: { login, password } });
+  if (requireAdmin && r.role !== 'admin') {
+    staffLogout(r.token);
+    throw new Error('Нет доступа для этой учётной записи');
+  }
+  return r;
+}
+
+// Закрываем сессию на сервере; если сети нет, она истечёт сама.
+function staffLogout(token) {
+  if (token) api('/api/auth/logout', { method: 'POST', token }).catch(() => {});
+}
+
 // Бесплатный сервер на Render засыпает: будим его, пока человек заполняет форму.
 api('/api/health').catch(() => {});

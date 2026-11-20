@@ -23,7 +23,9 @@
     <img src="shared/img/caravan-truck.svg" alt="">
     <form class="panel" id="loginForm">
       <h2 style="margin-top:0">Вход для кассира</h2>
-      <label for="password">Пароль кассы</label>
+      <label for="login">Логин</label>
+      <input id="login" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+      <label for="password">Пароль</label>
       <input id="password" type="password" autocomplete="current-password" required>
       <button class="btn" type="submit" id="loginBtn">Войти</button>
       <div class="error hidden" id="loginErr"></div>
@@ -32,7 +34,7 @@
 
   <main class="wrap" id="kassaView" style="margin-top:20px" hidden>
     <div class="kassa-bar">
-      <label class="station">АЗС № <input id="station" type="text" inputmode="numeric" maxlength="8"></label>
+      <span class="station-chip" id="stationChip"></span>
       <input type="search" id="q" placeholder="Код заявки, например 123 ABC" style="flex:1 1 200px">
     </div>
     <p class="hint" style="margin-top:0">Клиент показывает экран с кодом заявки. Найдите эту заявку, сверьте чек и выдайте машинку. Список обновляется сам.</p>

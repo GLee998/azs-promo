@@ -37,12 +37,12 @@ $('loginForm').addEventListener('submit', async e => {
   $('loginBtn').disabled = true;
   $('loginBtn').textContent = 'Проверяем…';
   try {
-    await api('/api/admin/login', { method: 'POST', token: $('password').value });
-    token = $('password').value;
+    token = (await staffLogin($('login').value, $('password').value, true)).token;
+    $('password').value = '';
     try { sessionStorage.setItem(TOKEN_KEY, token); } catch {}
     enter();
   } catch (err) {
-    $('loginErr').textContent = err.status === 401 ? 'Неверный пароль' : err.message;
+    $('loginErr').textContent = err.message;
     show($('loginErr'));
   } finally {
     $('loginBtn').disabled = false;
@@ -51,6 +51,7 @@ $('loginForm').addEventListener('submit', async e => {
 });
 
 function logout() {
+  staffLogout(token);
   token = null;
   try { sessionStorage.removeItem(TOKEN_KEY); } catch {}
   show($('registryView'), false);

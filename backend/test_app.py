@@ -10,8 +10,6 @@ from pathlib import Path
 from datetime import timedelta
 
 os.environ.setdefault("DATABASE_URL", "sqlite://")
-os.environ["ADMIN_PASSWORD"] = "secret"
-os.environ["CASHIER_PASSWORD"] = "kassa"
 os.environ["SMS_REQUIRED"] = "false"
 # Тесты шлют сотни запросов с одного адреса: лимиты частоты поднимаем, тесты лимитов задают свои.
 for _limit in ("RL_REG_IP", "RL_REG_PHONE", "RL_LOGIN_IP"):
@@ -29,8 +27,9 @@ backend.engine = backend.create_engine("sqlite://", poolclass=StaticPool,
 backend.Base.metadata.create_all(backend.engine)
 
 client = TestClient(backend.app)
-ADMIN = {"Authorization": "Bearer secret"}
-KASSA = {"Authorization": "Bearer kassa"}
+# Заголовки входа администратора и кассира (без АЗС). Их заполняет fresh_db() для каждой новой базы.
+ADMIN: dict = {}
+KASSA: dict = {}
 RECEIPT = {"fn": "0000440700000001", "fd": "12345", "fm": "1234567890"}
 
 
@@ -56,14 +55,55 @@ def queue_by_code(code: str, headers: dict | None = None) -> dict:
     return r.json()["waiting"][0]
 
 
-def fresh_db() -> None:
-    """Новая пустая база в памяти: тест не зависит от данных предыдущих тестов."""
-    backend.engine = backend.create_engine("sqlite://", poolclass=StaticPool,
-                                           connect_args={"check_same_thread": False})
+def add_user(login_: str, password: str, role: str, station: str | None = None) -> None:
+    with backend.Session(backend.engine) as db:
+        db.add(backend.StaffUser(login=login_, password_hash=backend.hash_password(password),
+                                 role=role, station=station, active=True))
+        db.commit()
+
+
+def login(login_: str, password: str) -> dict:
+    """Вход через API, как в браузере. Возвращает заголовок авторизации."""
+    r = client.post("/api/auth/login", json={"login": login_, "password": password})
+    assert r.status_code == 200, r.text
+    return {"Authorization": "Bearer " + r.json()["token"]}
+
+
+def staff_headers(login_: str) -> dict:
+    """Сессия без HTTP-входа: не расходует лимит попыток входа в тестах лимитов."""
+    with backend.Session(backend.engine) as db:
+        user = db.scalar(backend.select(backend.StaffUser).where(backend.StaffUser.login == login_))
+        token, _ = backend.start_session(db, user)
+        db.commit()
+    return {"Authorization": "Bearer " + token}
+
+
+def fresh_db(file: bool = False) -> None:
+    """Новая пустая база: тест не зависит от данных предыдущих тестов.
+
+    file=True — файловый SQLite, у каждого запроса своё соединение, как в Postgres.
+    Создаёт администратора admin и кассира kassa (без АЗС) и обновляет заголовки ADMIN и KASSA.
+    """
+    if file:
+        import tempfile
+        backend.engine = backend.create_engine(f"sqlite:///{Path(tempfile.mkdtemp()) / 'test.db'}",
+                                               connect_args={"timeout": 15})
+    else:
+        backend.engine = backend.create_engine("sqlite://", poolclass=StaticPool,
+                                               connect_args={"check_same_thread": False})
     backend.Base.metadata.create_all(backend.engine)
+    add_user("admin", "admin-pw", role="admin")
+    add_user("kassa", "kassa-pw", role="cashier")
+    ADMIN.clear(); ADMIN.update(staff_headers("admin"))
+    KASSA.clear(); KASSA.update(staff_headers("kassa"))
+
+
+def fresh_db_file() -> None:
+    fresh_db(file=True)
 
 
 def test_flow():
+    fresh_db()
     # Не фото, нет согласия, неверный номер
     r = client.post("/api/registrations", data={"phone": "+996555334455", "consent": "true"},
                     files={"photo": ("r.jpg", b"not an image", "image/jpeg")})
@@ -326,9 +366,9 @@ def test_registration_rate_limits():
 def test_login_rate_limit():
     """После 10 попыток входа с одного IP за 15 минут вход закрыт даже с верным паролем."""
     fresh_db()
-    assert all(client.post("/api/admin/login", headers={"Authorization": "Bearer wrong"}).status_code == 401
+    assert all(client.post("/api/auth/login", json={"login": "admin", "password": "wrong"}).status_code == 401
                for _ in range(10))
-    assert client.post("/api/admin/login", headers=ADMIN).status_code == 429
+    assert client.post("/api/auth/login", json={"login": "admin", "password": "admin-pw"}).status_code == 429
 
 
 def test_purge_rate_hits():
@@ -341,6 +381,79 @@ def test_purge_rate_hits():
         assert backend.purge_rate_hits(db) == 1
         db.commit()
         assert db.scalar(backend.select(backend.func.count()).select_from(backend.RateHit)) == 1
+
+
+def test_staff_login_station_and_audit():
+    """Личный вход кассира: АЗС берётся из учётки, а не из формы; действие попадает в журнал (B4)."""
+    fresh_db()
+    add_user("kassa7", "pw7", role="cashier", station="7"); add_user("boss", "pwb", role="admin")
+    assert client.post("/api/auth/login", json={"login": "kassa7", "password": "bad"}).status_code == 401
+    t = client.post("/api/auth/login", json={"login": "kassa7", "password": "pw7"}).json()
+    assert t["role"] == "cashier" and t["station"] == "7"
+    k7 = {"Authorization": "Bearer " + t["token"]}
+    boss = login("boss", "pwb")
+    code = register("+996555000301", station="", fn="61", fd="1", fm="1").json()["code"]
+    reg_id = queue_by_code(code, headers=k7)["id"]
+    assert client.post(f"/api/cashier/registrations/{reg_id}/issue", headers=k7, json={"station": "99"}).json()["issued_station"] == "7"
+    assert client.get("/api/admin/registrations", headers=k7).status_code == 403
+    log = client.get("/api/admin/audit.csv", headers=boss).text
+    assert "issue" in log and "kassa7" in log
+
+
+def test_concurrent_issue_single_winner():
+    """Два кассира одновременно отмечают выдачу одной заявки: успех один, номер участника один."""
+    fresh_db_file()   # файловый SQLite: у каждого запроса своё соединение
+    add_user("k1", "p", role="cashier", station="1")
+    k = login("k1", "p")
+    code = register("+996555000302", fn="62", fd="1", fm="1").json()["code"]
+    reg_id = queue_by_code(code, headers=k)["id"]
+    results = []
+    threads = [threading.Thread(target=lambda: results.append(
+        client.post(f"/api/cashier/registrations/{reg_id}/issue", headers=k, json={}).status_code)) for _ in range(2)]
+    [t.start() for t in threads]; [t.join() for t in threads]
+    assert sorted(results) == [200, 400], results
+    with backend.Session(backend.engine) as db:
+        assert db.scalar(backend.select(backend.func.count(backend.Entry.id))) == 1
+
+
+def test_session_expiry_and_logout():
+    """После выхода и по истечении срока токен не действует."""
+    fresh_db()
+    add_user("k2", "p", role="cashier", station="2")
+    k = login("k2", "p")
+    assert client.post("/api/auth/logout", headers=k).status_code == 200
+    assert client.get("/api/cashier/queue", headers=k).status_code == 401
+    k = login("k2", "p")
+    with backend.Session(backend.engine) as db:
+        for s in db.scalars(backend.select(backend.StaffSession)):
+            s.expires_at = backend.now() - timedelta(minutes=1)
+        db.commit()
+    assert client.get("/api/cashier/queue", headers=k).status_code == 401
+
+
+def test_manage_cli():
+    """manage.py: новый сотрудник входит с выданным паролем, отключённый — нет, purge чистит старые сессии."""
+    import contextlib
+    import manage
+    fresh_db()
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        manage.main(["add-user", "Azs12", "--role", "cashier", "--station", "12"])
+    password = out.getvalue().strip().split()[-1]
+    assert len(password) == 12
+    t = client.post("/api/auth/login", json={"login": "azs12", "password": password}).json()
+    assert t["role"] == "cashier" and t["station"] == "12"
+    with contextlib.redirect_stdout(io.StringIO()):
+        manage.main(["disable-user", "azs12"])
+    assert client.post("/api/auth/login", json={"login": "azs12", "password": password}).status_code == 401
+    with backend.Session(backend.engine) as db:
+        for s in db.scalars(backend.select(backend.StaffSession)):
+            s.expires_at = backend.now() - timedelta(days=1)
+        db.commit()
+    with contextlib.redirect_stdout(io.StringIO()):
+        manage.main(["purge"])
+    with backend.Session(backend.engine) as db:
+        assert db.scalar(backend.select(backend.func.count()).select_from(backend.StaffSession)) == 0
 
 
 if __name__ == "__main__":
@@ -356,4 +469,8 @@ if __name__ == "__main__":
     test_registration_rate_limits()
     test_login_rate_limit()
     test_purge_rate_hits()
+    test_staff_login_station_and_audit()
+    test_concurrent_issue_single_winner()
+    test_session_expiry_and_logout()
+    test_manage_cli()
     print("OK")

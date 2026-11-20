@@ -17,12 +17,7 @@ services:
         fromDatabase:
           name: azs-promo-db
           property: connectionString
-      # Временные пароли тестового стенда. Перед запуском акции заменить на сложные
-      # (generateValue: true или вручную в Dashboard → azs-promo-web → Environment).
-      - key: ADMIN_PASSWORD
-        value: "0000"
-      - key: CASHIER_PASSWORD
-        value: "0000"
+      # Общих паролей больше нет: у сотрудников личные учётки (backend/manage.py add-user).
       - key: SERVE_WEB
         value: "false"
       # Подтверждение номера кодом выключено.

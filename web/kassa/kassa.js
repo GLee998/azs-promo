@@ -2,15 +2,16 @@
 
 const $ = id => document.getElementById(id);
 const TOKEN_KEY = 'karavan_cashier_token';
-const STATION_KEY = 'karavan_station';
+const STATION_KEY = 'karavan_cashier_station';
 let token = null;
+let station = '';  // АЗС из учётки кассира; у маркетинга пусто — видны все АЗС
 let data = { waiting: [], recent: [] };
 let refreshTimer = null;
 const photoUrls = new Map();
 
 try {
   token = sessionStorage.getItem(TOKEN_KEY);
-  $('station').value = localStorage.getItem(STATION_KEY) || '';
+  station = sessionStorage.getItem(STATION_KEY) || '';
 } catch {}
 
 function show(el, on = true) { el.classList.toggle('hidden', !on); }
@@ -42,12 +43,17 @@ $('loginForm').addEventListener('submit', async e => {
   show($('loginErr'), false);
   $('loginBtn').disabled = true;
   try {
-    await api('/api/cashier/login', { method: 'POST', token: $('password').value });
-    token = $('password').value;
-    try { sessionStorage.setItem(TOKEN_KEY, token); } catch {}
+    const r = await staffLogin($('login').value, $('password').value);
+    token = r.token;
+    station = r.station || '';
+    $('password').value = '';
+    try {
+      sessionStorage.setItem(TOKEN_KEY, token);
+      sessionStorage.setItem(STATION_KEY, station);
+    } catch {}
     enter();
   } catch (err) {
-    $('loginErr').textContent = err.status === 401 ? 'Неверный пароль' : err.message;
+    $('loginErr').textContent = err.message;
     show($('loginErr'));
   } finally {
     $('loginBtn').disabled = false;
@@ -55,15 +61,21 @@ $('loginForm').addEventListener('submit', async e => {
 });
 
 function logout() {
+  staffLogout(token);
   token = null;
+  station = '';
   clearInterval(refreshTimer);
-  try { sessionStorage.removeItem(TOKEN_KEY); } catch {}
+  try {
+    sessionStorage.removeItem(TOKEN_KEY);
+    sessionStorage.removeItem(STATION_KEY);
+  } catch {}
   $('kassaView').hidden = true;
   show($('toolbar'), false);
   show($('loginView'));
 }
 
 function enter() {
+  $('stationChip').textContent = station ? `АЗС №${station}` : 'Все АЗС';
   show($('loginView'), false);
   $('kassaView').hidden = false;
   show($('toolbar'));
@@ -73,10 +85,6 @@ function enter() {
 }
 
 $('logout').addEventListener('click', logout);
-$('station').addEventListener('change', () => {
-  try { localStorage.setItem(STATION_KEY, $('station').value.trim()); } catch {}
-  render();
-});
 $('q').addEventListener('input', render);
 
 // ---------- очередь ----------
@@ -93,7 +101,6 @@ async function load() {
 }
 
 function render() {
-  const station = $('station').value.trim();
   const q = $('q').value.replace(/\s/g, '').toUpperCase();
   let list = data.waiting.filter(r => !q || r.code.replace(/\s/g, '').includes(q));
   // Заявки своей АЗС сверху.
@@ -162,12 +169,11 @@ $('queue').addEventListener('click', async e => {
   const errEl = cardEl.querySelector('[data-err]');
   show(errEl, false);
   const id = cardEl.dataset.id;
-  const station = $('station').value.trim();
 
   try {
     if (action === 'issue') {
-      if (!station) throw new Error('Укажите номер своей АЗС вверху страницы');
-      const body = { station };
+      // АЗС выдачи сервер берёт из учётки кассира.
+      const body = {};
       cardEl.querySelectorAll('[data-f]').forEach(i => { body[i.dataset.f] = i.value; });
       el.disabled = true;
       const r = await kassaApi(`/api/cashier/registrations/${id}/issue`, { method: 'POST', json: body });

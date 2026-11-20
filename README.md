@@ -41,10 +41,14 @@
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r backend/requirements.txt
-cd backend && ADMIN_PASSWORD=demo ../.venv/bin/uvicorn app:app --port 8765
+cd backend && ../.venv/bin/python manage.py add-user admin --role admin   # печатает пароль
+../.venv/bin/python manage.py add-user azs1 --role cashier --station 1
+../.venv/bin/uvicorn app:app --port 8765
 ```
 
-Открыть http://localhost:8765, реестр — http://localhost:8765/admin.html (пароль `demo`).
+Открыть http://localhost:8765, касса — http://localhost:8765/kassa/, админка — http://localhost:8765/admin/ (логин и пароль из `manage.py`).
+
+У каждого сотрудника личная учётка: у кассира своя АЗС, на неё отмечаются выдачи. Все выдачи, отмены, снятия и розыгрыш пишутся в журнал (админка → выгрузка `/api/admin/audit.csv`). Новый пароль: `manage.py set-password <логин>`, отключить: `manage.py disable-user <логин>`.
 
 Тест сквозного сценария (регистрация, блокировки, касса, одновременная регистрация): `cd backend && ../.venv/bin/python test_app.py`
 
@@ -61,7 +65,7 @@ cd backend && ADMIN_PASSWORD=demo ../.venv/bin/uvicorn app:app --port 8765
 | Переменная | По умолчанию | |
 |---|---|---|
 | `DATABASE_URL` | `sqlite:///./promo.db` | |
-| `ADMIN_PASSWORD` | `demo` | пароль реестра |
+| `SESSION_TTL_HOURS` | `14` | сколько часов действует вход сотрудника |
 | `SMS_REQUIRED` | `true` | требовать подтверждение номера |
 | `DEMO_SMS` | `true` | не отправлять SMS, показывать код на экране |
 | `ALLOWED_ORIGINS` | `*` | с каких сайтов можно обращаться к API |

@@ -422,6 +422,7 @@ input::placeholder { color: #8BA3B6; }
 
 .login { max-width: 420px; margin: 40px auto; padding: 0 16px; text-align: center; }
 .login .panel { text-align: left; }
+.login .panel input + label { margin-top: 14px; }
 .login > img { width: 220px; margin-bottom: 8px; }
 
 .admin-nav { display: flex; flex-wrap: wrap; gap: 4px; }
