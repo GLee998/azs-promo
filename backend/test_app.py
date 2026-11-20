@@ -47,6 +47,13 @@ def queue() -> dict:
     return {r["code"]: r for r in client.get("/api/cashier/queue", headers=KASSA).json()["waiting"]}
 
 
+def fresh_db() -> None:
+    """Новая пустая база в памяти: тест не зависит от данных предыдущих тестов."""
+    backend.engine = backend.create_engine("sqlite://", poolclass=StaticPool,
+                                           connect_args={"check_same_thread": False})
+    backend.Base.metadata.create_all(backend.engine)
+
+
 def test_flow():
     # Не фото, нет согласия, неверный номер
     r = client.post("/api/registrations", data={"phone": "+996555334455", "consent": "true"},
@@ -131,8 +138,7 @@ def test_flow():
 def test_draw():
     """8 разных победителей из выданных, повторный розыгрыш запрещён, переигрывание даёт нового победителя."""
     import hashlib
-    backend.engine = backend.create_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
-    backend.Base.metadata.create_all(backend.engine)
+    fresh_db()
     for i in range(12):
         r = register(f"+996 555 00{i:04d}"[:16], fn="100", fd=str(i), fm="7")
         item = queue()[r.json()["code"]]
@@ -220,10 +226,29 @@ def test_pool_exhausted_returns_503():
         held.close()
 
 
+def test_photo_limits_and_thumb():
+    """Огромная картинка отклоняется до декодирования, для списков есть лёгкое превью (B5, B2)."""
+    fresh_db()
+    big = io.BytesIO(); Image.new("1", (9000, 9000)).save(big, "PNG")  # 81 Мпикс, файл ~10 КБ
+    r = client.post("/api/registrations", data={"phone": "+996555000901", "consent": "true"},
+                    files={"photo": ("b.png", big.getvalue(), "image/png")})
+    assert r.status_code == 400 and "Слишком большое изображение" in r.json()["detail"], (r.status_code, r.text)
+
+    photo = io.BytesIO(); Image.new("RGB", (2400, 1600), "white").save(photo, "JPEG")
+    ok = client.post("/api/registrations", data={"phone": "+996555000902", "consent": "true", "fn": "41", "fd": "1", "fm": "1"},
+                     files={"photo": ("r.jpg", photo.getvalue(), "image/jpeg")})
+    item = queue()[ok.json()["code"]]
+    thumb = client.get(f"/api/cashier/registrations/{item['id']}/photo?size=thumb", headers=KASSA)
+    full = client.get(f"/api/cashier/registrations/{item['id']}/photo", headers=KASSA)
+    assert max(Image.open(io.BytesIO(thumb.content)).size) <= 480
+    assert max(Image.open(io.BytesIO(full.content)).size) == 1800
+
+
 if __name__ == "__main__":
     test_flow()
     test_draw()
     test_parallel_same_receipt()
     test_parallel_registrations_small_pool()
     test_pool_exhausted_returns_503()
+    test_photo_limits_and_thumb()
     print("OK")

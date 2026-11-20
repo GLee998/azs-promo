@@ -11,8 +11,10 @@ import io
 import os
 import random
 import secrets
+import warnings
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Literal
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -47,6 +49,15 @@ SMS_REQUIRED = os.getenv("SMS_REQUIRED", "false").lower() == "true"
 DEMO_SMS = os.getenv("DEMO_SMS", "true").lower() == "true"
 ALLOWED_ORIGINS = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "*").split(",") if o.strip()]
 MAX_PHOTO_BYTES = 10 * 1024 * 1024
+# Самые большие камеры телефонов дают около 50 Мпикс. Браузер клиента и так уменьшает фото до 1800 px,
+# больше присылают только скриптом. Сверх 2 × лимита Pillow сам бросает DecompressionBombError.
+MAX_PHOTO_PIXELS = 50_000_000
+Image.MAX_IMAGE_PIXELS = MAX_PHOTO_PIXELS
+# Предупреждение Pillow о слишком большой картинке считаем ошибкой: такие фото всё равно отклоняются.
+warnings.simplefilter("error", Image.DecompressionBombWarning)
+PHOTO_SIDE = 1800
+THUMB_SIDE = 480
+PHOTO_TOO_BIG = "Слишком большое изображение. Сфотографируйте чек ещё раз."
 SMS_TTL = timedelta(minutes=10)
 SMS_RESEND = timedelta(seconds=30)
 SMS_MAX_ATTEMPTS = 5
@@ -149,6 +160,7 @@ class RegistrationPhoto(Base):
 
     registration_id: Mapped[int] = mapped_column(ForeignKey("registrations.id"), primary_key=True)
     data: Mapped[bytes] = mapped_column(LargeBinary)
+    thumb: Mapped[bytes | None] = mapped_column(LargeBinary)  # превью для списков кассы и реестра
     registration: Mapped[Registration] = relationship(back_populates="photo")
 
 
@@ -242,17 +254,33 @@ def clean_station(v: str | None) -> str | None:
     return v or None
 
 
-def process_photo(raw: bytes) -> bytes:
-    """Проверяем, что это изображение, поворачиваем по EXIF, убираем метаданные, сжимаем."""
+def _jpeg(img: Image.Image, quality: int) -> bytes:
+    out = io.BytesIO()
+    img.save(out, "JPEG", quality=quality, optimize=True)
+    return out.getvalue()
+
+
+def process_photo(raw: bytes) -> tuple[bytes, bytes]:
+    """Проверяем, что это изображение разумного размера, поворачиваем по EXIF, убираем метаданные, сжимаем.
+
+    Возвращаем фото для просмотра (до 1800 px) и превью для списков (до 480 px).
+    """
     try:
         img = Image.open(io.BytesIO(raw))
+        # Размер известен из заголовка файла: огромную картинку отклоняем до декодирования,
+        # иначе одна такая загрузка занимает сотни мегабайт памяти.
+        if img.width * img.height > MAX_PHOTO_PIXELS:
+            raise HTTPException(400, PHOTO_TOO_BIG)
+        img.draft("RGB", (PHOTO_SIDE, PHOTO_SIDE))  # JPEG декодируется сразу в уменьшенном масштабе
         img = ImageOps.exif_transpose(img).convert("RGB")
+    except (Image.DecompressionBombError, Image.DecompressionBombWarning):
+        raise HTTPException(400, PHOTO_TOO_BIG)
     except (UnidentifiedImageError, OSError):
         raise HTTPException(400, "Файл не похож на фото. Загрузите изображение чека.")
-    img.thumbnail((1800, 1800))
-    out = io.BytesIO()
-    img.save(out, "JPEG", quality=82, optimize=True)
-    return out.getvalue()
+    img.thumbnail((PHOTO_SIDE, PHOTO_SIDE))
+    full = _jpeg(img, 82)
+    img.thumbnail((THUMB_SIDE, THUMB_SIDE))
+    return full, _jpeg(img, 70)
 
 
 def new_code(db: Session) -> str:
@@ -403,7 +431,7 @@ def create_registration(
     raw = photo.file.read(MAX_PHOTO_BYTES + 1)
     if len(raw) > MAX_PHOTO_BYTES:
         raise HTTPException(400, "Фото слишком большое (больше 10 МБ)")
-    photo_data = process_photo(raw)
+    photo_full, photo_thumb = process_photo(raw)
 
     r = Registration(
         code=new_code(db),
@@ -418,7 +446,7 @@ def create_registration(
     )
     # Реквизиты из QR распознаёт браузер клиента. Если QR не прочитался, их введёт кассир.
     r.set_fiscal(fn, fd, fm, "qr")
-    r.photo = RegistrationPhoto(data=photo_data)
+    r.photo = RegistrationPhoto(data=photo_full, thumb=photo_thumb)
 
     release_expired(db, phone_n, r.fiscal_key)
     if SMS_REQUIRED:
@@ -494,12 +522,25 @@ def cashier_queue(db: Session = Depends(get_db)):
             "recent": [cashier_view(r) for r in recent]}
 
 
-@app.get("/api/cashier/registrations/{reg_id}/photo", dependencies=[Depends(require_cashier)])
-def cashier_photo(reg_id: int, db: Session = Depends(get_db)):
-    photo = db.get(RegistrationPhoto, reg_id)
-    if not photo:
+PhotoSize = Literal["full", "thumb"]
+
+
+def photo_response(db: Session, reg_id: int, size: PhotoSize) -> Response:
+    # Читаем только нужную колонку: списку не нужно тянуть из базы полные фото.
+    column = RegistrationPhoto.thumb if size == "thumb" else RegistrationPhoto.data
+    row = db.execute(select(column).where(RegistrationPhoto.registration_id == reg_id)).first()
+    if row is None:
         raise HTTPException(404, "Фото не найдено")
-    return Response(photo.data, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=3600"})
+    data = row[0]
+    if data is None:  # у заявок, созданных до появления превью, есть только полное фото
+        data = db.scalar(select(RegistrationPhoto.data).where(RegistrationPhoto.registration_id == reg_id))
+    # Фото чека после загрузки не меняется, браузер может держать его в кэше сутки.
+    return Response(data, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=86400"})
+
+
+@app.get("/api/cashier/registrations/{reg_id}/photo", dependencies=[Depends(require_cashier)])
+def cashier_photo(reg_id: int, size: PhotoSize = "full", db: Session = Depends(get_db)):
+    return photo_response(db, reg_id, size)
 
 
 class IssueBody(BaseModel):
@@ -580,8 +621,8 @@ def list_registrations(db: Session = Depends(get_db)):
 
 
 @app.get("/api/admin/registrations/{reg_id}/photo", dependencies=[Depends(require_admin)])
-def admin_photo(reg_id: int, db: Session = Depends(get_db)):
-    return cashier_photo(reg_id, db)
+def admin_photo(reg_id: int, size: PhotoSize = "full", db: Session = Depends(get_db)):
+    return photo_response(db, reg_id, size)
 
 
 class AdminPatch(BaseModel):
