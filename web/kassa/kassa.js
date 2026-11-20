@@ -85,32 +85,39 @@ function enter() {
 }
 
 $('logout').addEventListener('click', logout);
-$('q').addEventListener('input', render);
+
+// Поиск по коду идёт на сервере и находит заявку любой АЗС. Ждём паузу в наборе, чтобы не слать запрос на каждую букву.
+let searchTimer = null;
+$('q').addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(load, 300);
+});
 
 // ---------- очередь ----------
 
+const REASONS = ['Чек не подходит под условия акции', 'В чеке нет комбо', 'Клиент передумал'];
+
 async function load() {
-  // Не перерисовываем, пока кассир вводит реквизиты чека.
+  // Не перерисовываем, пока кассир вводит реквизиты чека или выбирает причину отмены.
   if (document.activeElement && document.activeElement.closest('#queue input')) return;
+  if (document.querySelector('#queue [data-reasons]:not(.hidden)')) return;
+  const q = $('q').value.replace(/\s/g, '');
   try {
-    data = await kassaApi('/api/cashier/queue');
-    render();
+    data = await kassaApi('/api/cashier/queue' + (q.length >= 3 ? '?q=' + encodeURIComponent(q) : ''));
+    render(q.length >= 3);
   } catch (err) {
     $('queue').innerHTML = `<div class="card error">${esc(err.message)}</div>`;
   }
 }
 
-function render() {
-  const q = $('q').value.replace(/\s/g, '').toUpperCase();
-  let list = data.waiting.filter(r => !q || r.code.replace(/\s/g, '').includes(q));
-  // Заявки своей АЗС сверху.
-  list = [...list.filter(r => r.station === station), ...list.filter(r => r.station !== station)];
-
-  $('queue').innerHTML = list.length ? list.map(r => card(r, station)).join('') :
-    `<div class="card empty"><img src="shared/img/caravan-truck.svg" alt="">${q
+function render(searching = false) {
+  // Заявки своей АЗС сверху, затем заявки без АЗС (QR без номера кассы).
+  const list = [...data.waiting.filter(r => r.station === station), ...data.waiting.filter(r => r.station !== station)];
+  $('queue').innerHTML = list.length ? list.map(card).join('') :
+    `<div class="card empty"><img src="shared/img/caravan-truck.svg" alt="">${searching
       ? 'Заявки с таким кодом нет. Проверьте код на экране клиента или попросите обновить страницу.'
       : 'Сейчас никто не ждёт машинку. Новые заявки появятся здесь сами.'}</div>`;
-  list.forEach(r => loadPhoto(r.id));
+  list.forEach(r => loadThumb(r.id));
 
   $('recent').innerHTML = data.recent.length ? data.recent.map(r => `
     <div class="done-line">${plate(r.code, 'sm')}<span>${esc(r.phone)}</span>
@@ -119,76 +126,116 @@ function render() {
     : '<p class="hint" style="margin:0">Пока ничего не выдано.</p>';
 }
 
-function card(r, station) {
+// Сверху то, что кассир сверяет с экраном клиента: код, телефон, время. Под ними кнопки.
+// Фото чека — маленькое превью справа, полное открывается по нажатию.
+function card(r) {
   const time = new Date(r.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
   const mine = station && r.station === station;
   return `
   <article class="card kassa-card${mine ? ' mine' : ''}" data-id="${r.id}">
-    <div><img data-photo="${r.id}" alt="Фото чека"></div>
-    <div>
+    <div class="kassa-main">
       <div class="who">${plate(r.code)}<span class="phone">${esc(r.phone)}</span></div>
-      <div class="meta"><span>зарегистрирован в ${time}</span>${r.station ? `<span>QR кассы АЗС №${esc(r.station)}</span>` : ''}${r.receipt_sum ? `<span>${esc(r.receipt_sum)} сом</span>` : ''}</div>
+      <div class="meta"><span>в ${time}</span>${r.station ? `<span>QR АЗС №${esc(r.station)}</span>` : ''}${r.receipt_sum ? `<span>${esc(r.receipt_sum)} сом</span>` : ''}</div>
       ${r.needs_fiscal ? `
         <p class="qr-status warn" style="margin-top:10px">QR на фото не распознан. Введите реквизиты с бумажного чека клиента.</p>
         <div class="fiscal">
           <div><label>ФН</label><input data-f="fn" inputmode="numeric"></div>
           <div><label>ФД</label><input data-f="fd" inputmode="numeric"></div>
           <div><label>ФМ</label><input data-f="fm" inputmode="numeric"></div>
-        </div>` : `<div class="fiscal-read">Чек: ФН ${esc(r.fn)}, ФД ${esc(r.fd)}, ФМ ${esc(r.fm)}</div>`}
+        </div>` : ''}
       <div class="actions">
-        <button class="btn small" data-act="issue">Машинка выдана</button>
-        <button class="btn small secondary" data-act="cancel">Отменить заявку</button>
+        <button class="btn small" type="button" data-act="issue">Машинка выдана</button>
+        <button class="btn small secondary" type="button" data-act="cancel">Отменить заявку</button>
+      </div>
+      <div class="reasons hidden" data-reasons>
+        <p class="hint">Почему отменяете? Клиент увидит причину.</p>
+        <div class="actions">
+          ${REASONS.map(t => `<button class="btn small secondary" type="button" data-reason="${esc(t)}">${esc(t)}</button>`).join('')}
+          <button class="btn small secondary" type="button" data-act="other">Другое…</button>
+          <button class="btn small secondary" type="button" data-act="keep">Не отменять</button>
+        </div>
+        <div class="other-reason hidden" data-other>
+          <input type="text" maxlength="200" placeholder="Причина отмены" aria-label="Причина отмены">
+          <button class="btn small" type="button" data-act="cancel-other">Отменить заявку</button>
+        </div>
       </div>
       <div class="error hidden" data-err></div>
+      ${r.needs_fiscal ? '' : `<div class="fiscal-read">Чек: ФН ${esc(r.fn)}, ФД ${esc(r.fd)}, ФМ ${esc(r.fm)}</div>`}
     </div>
+    <button class="thumb" type="button" data-photo="${r.id}" aria-label="Открыть фото чека"><img alt=""></button>
   </article>`;
 }
 
-async function loadPhoto(id) {
-  const img = document.querySelector(`img[data-photo="${id}"]`);
-  if (!img) return;
-  if (!photoUrls.has(id)) {
-    try {
-      const res = await kassaApi(`/api/cashier/registrations/${id}/photo`, { raw: true });
-      photoUrls.set(id, URL.createObjectURL(await res.blob()));
-    } catch { return; }
+// Фото закрыто входом, поэтому грузим через fetch с заголовком авторизации и показываем blob-адрес.
+async function photoUrl(id, size) {
+  const key = `${id}:${size}`;
+  if (!photoUrls.has(key)) {
+    const res = await kassaApi(`/api/cashier/registrations/${id}/photo?size=${size}`, { raw: true });
+    photoUrls.set(key, URL.createObjectURL(await res.blob()));
   }
-  img.src = photoUrls.get(id);
+  return photoUrls.get(key);
+}
+
+async function loadThumb(id) {
+  try {
+    const url = await photoUrl(id, 'thumb');
+    const img = document.querySelector(`[data-photo="${id}"] img`);
+    if (img) img.src = url;
+  } catch {}
+}
+
+async function cancel(cardEl, reason) {
+  await kassaApi(`/api/cashier/registrations/${cardEl.dataset.id}/cancel`, { method: 'POST', json: { reason } });
+  toast('Заявка отменена, машинку не выдавайте');
 }
 
 $('queue').addEventListener('click', async e => {
-  const el = e.target;
-  if (el.dataset.photo && el.src) {
-    $('lightbox').querySelector('img').src = el.src;
-    show($('lightbox'));
+  const thumb = e.target.closest('[data-photo]');
+  if (thumb) {
+    try {
+      $('lightbox').querySelector('img').src = await photoUrl(thumb.dataset.photo, 'full');
+      show($('lightbox'));
+    } catch (err) { toast(err.message); }
     return;
   }
-  const action = el.dataset.act;
-  if (!action) return;
+  const el = e.target.closest('button');
+  if (!el || !el.closest('[data-id]')) return;
   const cardEl = el.closest('[data-id]');
   const errEl = cardEl.querySelector('[data-err]');
+  const reasons = cardEl.querySelector('[data-reasons]');
+  const other = cardEl.querySelector('[data-other]');
+  const action = el.dataset.reason ? 'reason' : el.dataset.act;
   show(errEl, false);
-  const id = cardEl.dataset.id;
+
+  // Выбор причины отмены: панель с кнопками вместо системного окна prompt().
+  if (action === 'cancel') { show(reasons, reasons.classList.contains('hidden')); return; }
+  if (action === 'keep') { show(reasons, false); show(other, false); return; }
+  if (action === 'other') { show(other); other.querySelector('input').focus(); return; }
 
   try {
+    el.disabled = true;
     if (action === 'issue') {
       // АЗС выдачи сервер берёт из учётки кассира.
       const body = {};
       cardEl.querySelectorAll('[data-f]').forEach(i => { body[i.dataset.f] = i.value; });
-      el.disabled = true;
-      const r = await kassaApi(`/api/cashier/registrations/${id}/issue`, { method: 'POST', json: body });
+      const r = await kassaApi(`/api/cashier/registrations/${cardEl.dataset.id}/issue`, { method: 'POST', json: body });
       toast(`Выдано. Клиент участвует в розыгрыше, номер ${r.entry}`);
+    } else if (action === 'reason') {
+      await cancel(cardEl, el.dataset.reason);
+    } else if (action === 'cancel-other') {
+      const reason = other.querySelector('input').value.trim();
+      if (!reason) throw new Error('Напишите причину отмены');
+      await cancel(cardEl, reason);
     } else {
-      const reason = prompt('Почему отменяете заявку? Клиент увидит эту причину.', 'Чек не подходит под условия акции');
-      if (reason === null) return;
-      await kassaApi(`/api/cashier/registrations/${id}/cancel`, { method: 'POST', json: { reason } });
-      toast('Заявка отменена, машинку не выдавайте');
+      return;
     }
+    show(reasons, false);
     await load();
   } catch (err) {
-    el.disabled = false;
     errEl.textContent = err.message;
     show(errEl);
+  } finally {
+    el.disabled = false;
   }
 });
 

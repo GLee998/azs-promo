@@ -33,7 +33,9 @@
   <main class="wrap" id="kassaView" style="margin-top:20px" hidden>
     <div class="kassa-bar">
       <span class="station-chip" id="stationChip"></span>
-      <input type="search" id="q" placeholder="Код заявки, например 123 ABC" style="flex:1 1 200px">
+      <label class="search-field" for="q">Код заявки
+        <input type="search" id="q" placeholder="например, 123 ABC" autocomplete="off" autocapitalize="characters" spellcheck="false">
+      </label>
     </div>
     <p class="hint" style="margin-top:0">Клиент показывает экран с кодом заявки. Найдите эту заявку, сверьте чек и выдайте машинку. Список обновляется сам.</p>
 

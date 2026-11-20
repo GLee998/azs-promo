@@ -71,15 +71,28 @@ $('refresh').addEventListener('click', () => load());
 
 // ---------- список ----------
 
+// Реестр постранично: фильтр и поиск выполняет сервер, браузер получает одну страницу.
+const PER_PAGE = 50;
+let page = 1;
+let total = 0;
+
 async function load() {
+  const params = new URLSearchParams({ page, per_page: PER_PAGE });
+  if ($('statusFilter').value) params.set('status', $('statusFilter').value);
+  if ($('q').value.trim()) params.set('q', $('q').value.trim());
   try {
-    const r = await adminApi('/api/admin/registrations');
+    const r = await adminApi('/api/admin/registrations?' + params);
     items = r.items;
+    total = r.total;
     renderStats(r.stats);
     render();
   } catch (err) {
     $('list').innerHTML = `<div class="card error">${esc(err.message)}</div>`;
   }
+}
+
+async function loadStats() {
+  try { renderStats(await adminApi('/api/admin/stats')); } catch {}
 }
 
 function renderStats(s) {
@@ -95,25 +108,18 @@ function renderStats(s) {
     `<div class="stat${i === tiles.length - 1 ? ' accent' : ''}"><b>${n}</b><span>${t}</span></div>`).join('');
 }
 
-function matches(a) {
-  const f = $('statusFilter').value;
-  if (f === 'unchecked' && !(a.status === 'issued' && !a.check_purchase)) return false;
-  if (f && f !== 'unchecked' && a.status !== f) return false;
-  const q = $('q').value.trim().toLowerCase().replace(/\s/g, '');
-  if (!q) return true;
-  return [a.code, a.phone, a.fn, a.fd, a.fm, a.entry].some(v => v && v.toLowerCase().replace(/\s/g, '').includes(q));
-}
-
 function render() {
-  const list = items.filter(matches);
-  if (!list.length) {
-    $('list').innerHTML = `<div class="card empty"><img src="shared/img/caravan-truck.svg" alt="">${items.length
+  const filtered = $('statusFilter').value || $('q').value.trim();
+  $('list').innerHTML = items.length ? items.map(card).join('') :
+    `<div class="card empty"><img src="shared/img/caravan-truck.svg" alt="">${filtered
       ? 'Под фильтр ничего не подходит. Сбросьте поиск или статус.'
       : 'Регистраций пока нет. Они появятся здесь, как только клиенты отсканируют QR на кассе.'}</div>`;
-    return;
-  }
-  $('list').innerHTML = list.map(card).join('');
-  list.forEach(a => loadPhoto(a.id));
+  $('list').querySelectorAll('[data-photo]').forEach(el => thumbs.observe(el));
+  const from = total ? (page - 1) * PER_PAGE + 1 : 0;
+  $('range').textContent = `${from}–${Math.min(page * PER_PAGE, total)} из ${total}`;
+  $('prev').disabled = page <= 1;
+  $('next').disabled = page * PER_PAGE >= total;
+  show($('pager'), total > PER_PAGE);
 }
 
 function card(a) {
@@ -122,7 +128,7 @@ function card(a) {
   const src = a.fiscal_source === 'qr' ? 'из QR' : a.fiscal_source === 'cashier' ? 'введены кассиром' : '';
   return `
   <article class="card app" data-id="${a.id}">
-    <div><img data-photo="${a.id}" alt="Фото чека"></div>
+    <div><button class="photo-btn" type="button" data-photo="${a.id}" aria-label="Открыть фото чека"><img alt=""></button></div>
     <div>
       <h3>${plate(a.code)} <span class="tag ${a.status}">${STATUS[a.status]}</span>
         ${a.entry ? `<span class="tag pink">${esc(a.entry)}</span>` : ''}
@@ -146,29 +152,40 @@ function card(a) {
   </article>`;
 }
 
-// Фото закрыто паролем, поэтому грузим его через fetch с заголовком авторизации.
-async function loadPhoto(id) {
-  const img = document.querySelector(`img[data-photo="${id}"]`);
-  if (!img) return;
-  if (!photoUrls.has(id)) {
-    try {
-      const res = await adminApi(`/api/admin/registrations/${id}/photo`, { raw: true });
-      photoUrls.set(id, URL.createObjectURL(await res.blob()));
-    } catch { return; }
+// Фото закрыто входом, поэтому грузим его через fetch с заголовком авторизации и показываем blob-адрес.
+async function photoUrl(id, size) {
+  const key = `${id}:${size}`;
+  if (!photoUrls.has(key)) {
+    const res = await adminApi(`/api/admin/registrations/${id}/photo?size=${size}`, { raw: true });
+    photoUrls.set(key, URL.createObjectURL(await res.blob()));
   }
-  img.src = photoUrls.get(id);
+  return photoUrls.get(key);
 }
 
+// Превью грузим только для карточек, до которых долистали.
+const thumbs = new IntersectionObserver(entries => entries.forEach(async en => {
+  if (!en.isIntersecting) return;
+  thumbs.unobserve(en.target);
+  try { en.target.querySelector('img').src = await photoUrl(en.target.dataset.photo, 'thumb'); } catch {}
+}), { rootMargin: '300px' });
+
+// После изменения перерисовываем одну карточку из ответа сервера, а не весь список.
 async function act(el, fn) {
   const cardEl = el.closest('[data-id]');
   const errEl = cardEl.querySelector('[data-err]');
   show(errEl, false);
   try {
-    await fn(cardEl.dataset.id);
-    await load();
+    const updated = await fn(cardEl.dataset.id);
+    const i = items.findIndex(a => a.id === updated.id);
+    if (i >= 0) items[i] = updated;
+    cardEl.outerHTML = card(updated);
+    const fresh = $('list').querySelector(`[data-id="${updated.id}"] [data-photo]`);
+    if (fresh) thumbs.observe(fresh);
+    loadStats();
   } catch (err) {
     errEl.textContent = err.message;
     show(errEl);
+    if (el.type === 'checkbox') el.checked = !el.checked;  // вернуть галочку, раз сервер не принял
   }
 }
 
@@ -179,13 +196,16 @@ $('list').addEventListener('change', e => {
   }
 });
 
-$('list').addEventListener('click', e => {
-  const el = e.target;
-  if (el.dataset.photo && el.src) {
-    $('lightbox').querySelector('img').src = el.src;
-    show($('lightbox'));
+$('list').addEventListener('click', async e => {
+  const photo = e.target.closest('[data-photo]');
+  if (photo) {
+    try {
+      $('lightbox').querySelector('img').src = await photoUrl(photo.dataset.photo, 'full');
+      show($('lightbox'));
+    } catch (err) { alert(err.message); }
     return;
   }
+  const el = e.target;
   const action = el.dataset.act;
   if (action === 'disqualify') {
     const reason = prompt('Причина снятия с розыгрыша', 'Покупка не подтверждена выгрузкой продаж');
@@ -197,8 +217,16 @@ $('list').addEventListener('click', e => {
 });
 
 $('lightbox').addEventListener('click', () => show($('lightbox'), false));
-$('q').addEventListener('input', render);
-$('statusFilter').addEventListener('change', render);
+
+// Поиск и фильтр уходят на сервер; ждём паузу в наборе, чтобы не слать запрос на каждую букву.
+let searchTimer = null;
+$('q').addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => { page = 1; load(); }, 300);
+});
+$('statusFilter').addEventListener('change', () => { page = 1; load(); });
+$('prev').addEventListener('click', () => { page -= 1; load(); scrollTo({ top: 0 }); });
+$('next').addEventListener('click', () => { page += 1; load(); scrollTo({ top: 0 }); });
 
 // ---------- сверка и выгрузка ----------
 

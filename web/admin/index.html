@@ -52,8 +52,8 @@
     </section>
 
     <div class="filters">
-      <input type="search" id="q" placeholder="Поиск: телефон, код заявки, ФН/ФД/ФМ, номер участника">
-      <select id="statusFilter">
+      <input type="search" id="q" placeholder="Поиск: телефон, код заявки, ФН/ФД/ФМ, номер участника" aria-label="Поиск по реестру">
+      <select id="statusFilter" aria-label="Статус заявки">
         <option value="">Все статусы</option>
         <option value="waiting">Ждут выдачи</option>
         <option value="issued">Машинка выдана</option>
@@ -64,6 +64,11 @@
     </div>
 
     <div id="list"></div>
+    <div class="pager hidden" id="pager">
+      <button class="btn small secondary" id="prev" type="button">Назад</button>
+      <span id="range" aria-live="polite"></span>
+      <button class="btn small secondary" id="next" type="button">Вперёд</button>
+    </div>
 
     <section class="card">
       <h2>Как устроена проверка</h2>
