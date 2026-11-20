@@ -13,6 +13,9 @@ os.environ.setdefault("DATABASE_URL", "sqlite://")
 os.environ["ADMIN_PASSWORD"] = "secret"
 os.environ["CASHIER_PASSWORD"] = "kassa"
 os.environ["SMS_REQUIRED"] = "false"
+# Тесты шлют сотни запросов с одного адреса: лимиты частоты поднимаем, тесты лимитов задают свои.
+for _limit in ("RL_REG_IP", "RL_REG_PHONE", "RL_LOGIN_IP"):
+    os.environ[_limit] = "100000"
 
 from fastapi.testclient import TestClient  # noqa: E402
 from PIL import Image  # noqa: E402
@@ -291,6 +294,55 @@ def test_expired_released_in_bulk():
     assert register("+996555000050", fn="91", fd="0", fm="1").status_code == 200  # номер и чек освободились
 
 
+def with_limits(**limits):
+    """Временно задаёт лимиты частоты (константы модуля app) на время теста."""
+    def wrap(test):
+        def run():
+            saved = {k: getattr(backend, k) for k in limits}
+            for k, v in limits.items():
+                setattr(backend, k, v)
+            try:
+                test()
+            finally:
+                for k, v in saved.items():
+                    setattr(backend, k, v)
+        run.__name__ = test.__name__
+        return run
+    return wrap
+
+
+@with_limits(RL_REG_IP=60, RL_REG_PHONE=5)
+def test_registration_rate_limits():
+    """Не больше 5 попыток на номер в час и 60 регистраций с одного IP за 10 минут (B4)."""
+    fresh_db()
+    codes = [register("+996 555 000 777", fn="51", fd=str(i), fm="1").status_code for i in range(6)]
+    assert codes[0] == 200 and codes[1:5] == [409] * 4 and codes[5] == 429, codes  # по телефону
+    fresh_db()
+    codes = [register(f"+996 555 1{i:05d}", fn="52", fd=str(i), fm="1").status_code for i in range(61)]
+    assert codes[:60] == [200] * 60 and codes[60] == 429, codes  # по IP: щадящий лимит (CGNAT)
+
+
+@with_limits(RL_LOGIN_IP=10)
+def test_login_rate_limit():
+    """После 10 попыток входа с одного IP за 15 минут вход закрыт даже с верным паролем."""
+    fresh_db()
+    assert all(client.post("/api/admin/login", headers={"Authorization": "Bearer wrong"}).status_code == 401
+               for _ in range(10))
+    assert client.post("/api/admin/login", headers=ADMIN).status_code == 429
+
+
+def test_purge_rate_hits():
+    """Счётчики старше суток удаляются, свежие остаются."""
+    fresh_db()
+    with backend.Session(backend.engine) as db:
+        db.add_all([backend.RateHit(bucket="reg_ip", key="1.2.3.4", window_start=backend.now() - timedelta(days=2), hits=3),
+                    backend.RateHit(bucket="reg_ip", key="1.2.3.4", window_start=backend.now(), hits=1)])
+        db.commit()
+        assert backend.purge_rate_hits(db) == 1
+        db.commit()
+        assert db.scalar(backend.select(backend.func.count()).select_from(backend.RateHit)) == 1
+
+
 if __name__ == "__main__":
     test_flow()
     test_draw()
@@ -301,4 +353,7 @@ if __name__ == "__main__":
     test_cashier_queue_by_station_and_code()
     test_admin_registrations_paginated()
     test_expired_released_in_bulk()
+    test_registration_rate_limits()
+    test_login_rate_limit()
+    test_purge_rate_hits()
     print("OK")

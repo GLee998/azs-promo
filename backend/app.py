@@ -17,14 +17,16 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal
 
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel
 from sqlalchemy import (Boolean, DateTime, ForeignKey, Index, LargeBinary, String, Text,
-                        create_engine, func, or_, select, update)
+                        create_engine, delete, func, or_, select, update)
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.exc import TimeoutError as PoolTimeout
 from sqlalchemy.orm import (DeclarativeBase, Mapped, Session, contains_eager, mapped_column, relationship,
@@ -66,6 +68,15 @@ SMS_MAX_ATTEMPTS = 5
 # Заявка, по которой машинку так и не выдали, перестаёт держать номер и чек.
 WAITING_TTL = timedelta(hours=int(os.getenv("WAITING_TTL_HOURS", "3")))
 EXPIRED_REASON = "Игрушку не забрали вовремя"
+# Лимиты частоты. С одного IP мобильного оператора выходят многие клиенты (CGNAT), поэтому лимит
+# по IP мягкий, а строгий — по номеру телефона и на вход сотрудников.
+RL_REG_IP = int(os.getenv("RL_REG_IP", "60"))
+REG_IP_WINDOW = timedelta(minutes=10)
+RL_REG_PHONE = int(os.getenv("RL_REG_PHONE", "5"))
+REG_PHONE_WINDOW = timedelta(hours=1)
+RL_LOGIN_IP = int(os.getenv("RL_LOGIN_IP", "10"))
+LOGIN_WINDOW = timedelta(minutes=15)
+TOO_MANY_ATTEMPTS = "Слишком много попыток. Попробуйте через несколько минут."
 DRAW_PRIZES = int(os.getenv("DRAW_PRIZES", "8"))  # 8 поездок на новогоднем караване
 # Сброс розыгрыша нужен только на тестовом стенде, в проде он выключен.
 DRAW_RESET_ALLOWED = os.getenv("DRAW_RESET_ALLOWED", "false").lower() == "true"
@@ -224,6 +235,16 @@ class SmsCode(Base):
     attempts: Mapped[int] = mapped_column(default=0)
 
 
+class RateHit(Base):
+    """Счётчик попыток в окне времени. Хранится в базе, чтобы лимит был общим для всех воркеров API."""
+    __tablename__ = "rate_hits"
+
+    bucket: Mapped[str] = mapped_column(String(32), primary_key=True)  # что ограничиваем: reg_ip, reg_phone, login
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)     # IP или номер телефона
+    window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    hits: Mapped[int] = mapped_column(default=0)
+
+
 Base.metadata.create_all(engine)
 
 
@@ -299,6 +320,39 @@ def new_code(db: Session) -> str:
         code = f"{random.randint(0, 999):03d} " + "".join(random.choices("ABCEHKMOPTXY", k=3))
         if not db.scalar(select(Registration.id).where(Registration.code == code)):
             return code
+
+
+def client_ip(request: Request) -> str:
+    # За Caddy uvicorn запущен с --proxy-headers, и здесь адрес клиента, а не прокси.
+    return request.client.host if request.client else "unknown"
+
+
+def rate_limit(db: Session, bucket: str, key: str, limit: int, window: timedelta) -> None:
+    """Считаем попытку в текущем окне и отвечаем 429, если их больше limit.
+
+    Счётчик увеличивается одним атомарным запросом (INSERT … ON CONFLICT DO UPDATE) и сразу
+    сохраняется: попытка засчитывается, даже если запрос дальше завершится ошибкой.
+    """
+    seconds = window.total_seconds()
+    ts = now().timestamp()
+    start = datetime.fromtimestamp(ts - ts % seconds, timezone.utc)
+    insert = pg_insert if db.get_bind().dialect.name == "postgresql" else sqlite_insert
+    stmt = insert(RateHit).values(bucket=bucket, key=key[:64], window_start=start, hits=1)
+    stmt = stmt.on_conflict_do_update(index_elements=["bucket", "key", "window_start"],
+                                      set_={"hits": RateHit.hits + 1}).returning(RateHit.hits)
+    hits = db.execute(stmt).scalar_one()
+    db.commit()
+    if hits > limit:
+        raise HTTPException(429, TOO_MANY_ATTEMPTS)
+
+
+def purge_rate_hits(db: Session) -> int:
+    """Удаляем счётчики старше суток: самое длинное окно — час."""
+    return db.execute(delete(RateHit).where(RateHit.window_start < now() - timedelta(days=1))).rowcount
+
+
+def login_rate_limit(request: Request, db: Session = Depends(get_db)) -> None:
+    rate_limit(db, "login", client_ip(request), RL_LOGIN_IP, LOGIN_WINDOW)
 
 
 def bearer(authorization: str) -> str:
@@ -434,6 +488,7 @@ def conflict_message(db: Session, phone: str, fiscal_key: str | None) -> str:
 # сервер зависал целиком (B1 в аудите).
 @app.post("/api/registrations")
 def create_registration(
+    request: Request,
     phone: str = Form(...),
     consent: bool = Form(...),
     photo: UploadFile = File(...),
@@ -446,9 +501,12 @@ def create_registration(
     receipt_date: str = Form(""),
     db: Session = Depends(get_db),
 ):
+    # Лимиты проверяем до обработки фото: она самая дорогая часть запроса.
+    rate_limit(db, "reg_ip", client_ip(request), RL_REG_IP, REG_IP_WINDOW)
     phone_n = normalize_phone(phone)
     if not phone_n:
         raise HTTPException(400, "Введите номер в формате +996 XXX XXX XXX")
+    rate_limit(db, "reg_phone", phone_n, RL_REG_PHONE, REG_PHONE_WINDOW)
     if not consent:
         raise HTTPException(400, "Нужно согласие с правилами акции и обработкой данных")
 
@@ -523,7 +581,7 @@ def get_reg(db: Session, reg_id: int) -> Registration:
     return r
 
 
-@app.post("/api/cashier/login", dependencies=[Depends(require_cashier)])
+@app.post("/api/cashier/login", dependencies=[Depends(login_rate_limit), Depends(require_cashier)])
 def cashier_login():
     return {"ok": True}
 
@@ -638,7 +696,7 @@ def admin_view(r: Registration) -> dict:
     }
 
 
-@app.post("/api/admin/login", dependencies=[Depends(require_admin)])
+@app.post("/api/admin/login", dependencies=[Depends(login_rate_limit), Depends(require_admin)])
 def admin_login():
     return {"ok": True}
 
