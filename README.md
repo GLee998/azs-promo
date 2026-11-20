@@ -57,7 +57,7 @@ cd backend && ../.venv/bin/python manage.py add-user admin --role admin   # пе
 
 Свой сервер (VPS) с Docker Compose: Caddy, API и Postgres, бэкапы, мониторинг и тестовый стенд. Пошагово — [deploy/README.md](deploy/README.md).
 
-Тесты: `cd backend && ../.venv/bin/python test_app.py` и `node --test web/client/*.test.js`.
+Тесты: `cd backend && ../.venv/bin/python test_app.py`, `node --test web/client/*.test.js web/shared/*.test.js` и `bash deploy/tests/test_scripts.sh`.
 
 ## Настройки API (переменные окружения)
 

@@ -11,6 +11,7 @@
 import argparse
 import secrets
 import sys
+from datetime import timedelta
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
@@ -70,8 +71,9 @@ def disable_user(db: Session, args) -> None:
 def purge(db: Session, args) -> None:
     sessions = db.execute(delete(app.StaffSession).where(app.StaffSession.expires_at < app.now())).rowcount
     hits = app.purge_rate_hits(db)
+    codes = db.execute(delete(app.SmsCode).where(app.SmsCode.sent_at < app.now() - timedelta(days=1))).rowcount
     db.commit()
-    print(f"Удалено истёкших сессий: {sessions}, старых счётчиков попыток: {hits}")
+    print(f"Удалено истёкших сессий: {sessions}, старых счётчиков попыток: {hits}, старых SMS-кодов: {codes}")
 
 
 def main(argv: list[str] | None = None) -> None:

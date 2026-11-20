@@ -449,11 +449,13 @@ def test_manage_cli():
     with backend.Session(backend.engine) as db:
         for s in db.scalars(backend.select(backend.StaffSession)):
             s.expires_at = backend.now() - timedelta(days=1)
+        db.add(backend.SmsCode(phone="+996555000999", code="1234", sent_at=backend.now() - timedelta(days=2)))
         db.commit()
     with contextlib.redirect_stdout(io.StringIO()):
         manage.main(["purge"])
     with backend.Session(backend.engine) as db:
         assert db.scalar(backend.select(backend.func.count()).select_from(backend.StaffSession)) == 0
+        assert db.scalar(backend.select(backend.func.count()).select_from(backend.SmsCode)) == 0  # I4
 
 
 def test_phone_normalization():
@@ -464,6 +466,7 @@ def test_phone_normalization():
     assert n("0700 123 456") == "+996700123456"
     assert n("700123456") == "+996700123456"
     assert n("+996 700 123") is None
+    assert n("00996 700 123 456") == "+996700123456"  # международный префикс 00 (I3)
 
 
 def test_health_checks_db():
@@ -472,6 +475,75 @@ def test_health_checks_db():
     assert client.get("/api/health").status_code == 503
     fresh_db()
     assert client.get("/api/health").json() == {"ok": True}
+
+
+def test_large_png_memory_bounded():
+    """PNG в 150 КБ с картинкой 50 Мпикс не съедает сотни мегабайт памяти: отказ или экономная обработка (C2)."""
+    import subprocess, sys, tempfile
+    png = Path(tempfile.mkdtemp()) / "big.png"
+    Image.new("RGB", (7071, 7071), "white").save(png)
+    code = ("import resource, sys, app\n"
+            "raw = open(sys.argv[1], 'rb').read()\n"
+            "before = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss\n"
+            "try:\n    app.process_photo(raw)\nexcept app.HTTPException as e:\n    print('rejected', e.status_code)\n"
+            "print('delta_kb', resource.getrusage(resource.RUSAGE_SELF).ru_maxrss - before)\n")
+    out = subprocess.run([sys.executable, "-c", code, str(png)], capture_output=True, text=True, check=True,
+                         env={**os.environ, "DATABASE_URL": "sqlite://"}, cwd=Path(__file__).parent).stdout
+    delta_mb = int(out.split("delta_kb")[1]) / 1024
+    assert "rejected 400" in out or delta_mb < 150, out
+
+
+def test_odd_image_files_return_400():
+    """Бомба в текстовом блоке PNG, огромный ICC-профиль и DDS — понятный 400, а не 500 (I1)."""
+    import struct
+    from PIL import PngImagePlugin
+    info = PngImagePlugin.PngInfo()
+    info.add_text("comment", "A" * 2_000_000, zip=True)
+    ztxt = io.BytesIO(); Image.new("RGB", (10, 10)).save(ztxt, "PNG", pnginfo=info)
+    icc = io.BytesIO(); Image.new("RGB", (10, 10)).save(icc, "PNG", icc_profile=b"\0" * 3_000_000)
+    dds = (b"DDS " + struct.pack("<7I", 124, 0x1007, 4, 4, 0, 0, 0) + b"\0" * 44
+           + struct.pack("<2I4s5I", 32, 0x4, b"ABCD", 0, 0, 0, 0, 0) + b"\0" * 20 + b"\0" * 64)
+    fresh_db()
+    for i, (name, data) in enumerate([("z.png", ztxt.getvalue()), ("i.png", icc.getvalue()), ("x.dds", dds)]):
+        r = client.post("/api/registrations", data={"phone": f"+99655500090{i}", "consent": "true"},
+                        files={"photo": (name, data, "application/octet-stream")})
+        assert r.status_code == 400, (name, r.status_code, r.text[:120])
+
+
+@with_limits(RL_LOGIN_IP=10)
+def test_successful_logins_not_limited():
+    """Кассиры за одним IP входят в начале смены: удачные входы лимит не расходуют (I2)."""
+    fresh_db()
+    for i in range(12):
+        add_user(f"azs{i}", "pw", role="cashier", station=str(i))
+    codes = [client.post("/api/auth/login", json={"login": f"azs{i}", "password": "pw"}).status_code for i in range(12)]
+    assert codes == [200] * 12, codes
+
+
+def test_sms_send_disabled_without_sms():
+    """Без подтверждения по SMS адрес отправки кода закрыт: через него нельзя перебирать номера (I4)."""
+    fresh_db()
+    assert client.post("/api/sms/send", json={"phone": "+996555000111"}).status_code == 404
+
+
+def test_csv_empty_fiscal_row_matches_nothing():
+    """Пустая строка в выгрузке кассы не помечает заявки без реквизитов возвратом (I8)."""
+    fresh_db()
+    register("+996555000501")  # QR не распознан: реквизитов нет
+    r = client.post("/api/admin/import/returns", headers=ADMIN,
+                    files={"file": ("r.csv", b"fn;fd;fm\n1111;2222;3333\n;;\n")})
+    assert r.json()["matched"] == 0, r.json()
+    assert not client.get("/api/admin/registrations", headers=ADMIN).json()["items"][0]["returned"]
+
+
+def test_photo_exif_orientation_kept():
+    """Фото, снятое боком (EXIF Orientation=6), поворачивается и после уменьшения до 1800 px."""
+    exif = Image.Exif()
+    exif[0x0112] = 6  # повернуть на 90° по часовой
+    buf = io.BytesIO(); Image.new("RGB", (2400, 1200), "white").save(buf, "JPEG", exif=exif)
+    full, thumb = backend.process_photo(buf.getvalue())
+    assert Image.open(io.BytesIO(full)).size == (900, 1800)
+    assert Image.open(io.BytesIO(thumb)).size == (240, 480)
 
 
 if __name__ == "__main__":
@@ -493,4 +565,10 @@ if __name__ == "__main__":
     test_manage_cli()
     test_phone_normalization()
     test_health_checks_db()
+    test_large_png_memory_bounded()
+    test_odd_image_files_return_400()
+    test_successful_logins_not_limited()
+    test_sms_send_disabled_without_sms()
+    test_csv_empty_fiscal_row_matches_nothing()
+    test_photo_exif_orientation_kept()
     print("OK")

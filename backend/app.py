@@ -12,6 +12,7 @@ import os
 import random
 import re
 import secrets
+import threading
 import warnings
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -21,7 +22,7 @@ from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, 
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from PIL import Image, ImageOps, UnidentifiedImageError
+from PIL import Image, ImageOps
 from pydantic import BaseModel
 from sqlalchemy import (Boolean, DateTime, ForeignKey, Index, LargeBinary, String, Text,
                         create_engine, delete, func, or_, select, text, update)
@@ -54,15 +55,22 @@ SMS_REQUIRED = os.getenv("SMS_REQUIRED", "false").lower() == "true"
 DEMO_SMS = os.getenv("DEMO_SMS", "true").lower() == "true"
 ALLOWED_ORIGINS = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "*").split(",") if o.strip()]
 MAX_PHOTO_BYTES = 10 * 1024 * 1024
-# Самые большие камеры телефонов дают около 50 Мпикс. Браузер клиента и так уменьшает фото до 1800 px,
-# больше присылают только скриптом. Сверх 2 × лимита Pillow сам бросает DecompressionBombError.
+# Браузер клиента всегда присылает JPEG до 1800 px. Остальное приходит только скриптом, поэтому
+# принимаем лишь JPEG, PNG и WEBP. JPEG декодируется сразу в уменьшенном масштабе (draft), и даже
+# 50 Мпикс с камеры телефона занимают немного памяти. PNG и WEBP декодируются целиком: 12 Мпикс —
+# это до 48 МБ на снимок. Сверх 2 × MAX_IMAGE_PIXELS Pillow сам бросает DecompressionBombError.
+PHOTO_FORMATS = ("JPEG", "PNG", "WEBP")
 MAX_PHOTO_PIXELS = 50_000_000
+MAX_PHOTO_PIXELS_FULL_DECODE = 12_000_000
 Image.MAX_IMAGE_PIXELS = MAX_PHOTO_PIXELS
+# Одновременно обрабатываем не больше нескольких фото на воркер: пик памяти ограничен, остальные ждут.
+PHOTO_SLOTS = threading.BoundedSemaphore(int(os.getenv("PHOTO_WORKERS", "3")))
 # Предупреждение Pillow о слишком большой картинке считаем ошибкой: такие фото всё равно отклоняются.
 warnings.simplefilter("error", Image.DecompressionBombWarning)
 PHOTO_SIDE = 1800
 THUMB_SIDE = 480
 PHOTO_TOO_BIG = "Слишком большое изображение. Сфотографируйте чек ещё раз."
+NOT_A_PHOTO = "Файл не похож на фото. Загрузите изображение чека."
 SMS_TTL = timedelta(minutes=10)
 SMS_RESEND = timedelta(seconds=30)
 SMS_MAX_ATTEMPTS = 5
@@ -304,6 +312,8 @@ def clean_digits(v) -> str | None:
 def normalize_phone(raw: str) -> str | None:
     """Кыргызский номер: +996 XXX XXX XXX. Принимаем и местную запись 0XXX XXX XXX."""
     d = "".join(ch for ch in raw if ch.isdigit())
+    if d.startswith("00"):  # международный префикс: 00996 … — то же, что +996 …
+        d = d[2:]
     if d.startswith("9960"):
         d = "996" + d[4:]
     if len(d) == 10 and d[0] == "0":
@@ -336,22 +346,30 @@ def process_photo(raw: bytes) -> tuple[bytes, bytes]:
 
     Возвращаем фото для просмотра (до 1800 px) и превью для списков (до 480 px).
     """
-    try:
-        img = Image.open(io.BytesIO(raw))
-        # Размер известен из заголовка файла: огромную картинку отклоняем до декодирования,
-        # иначе одна такая загрузка занимает сотни мегабайт памяти.
-        if img.width * img.height > MAX_PHOTO_PIXELS:
+    with PHOTO_SLOTS:
+        try:
+            img = Image.open(io.BytesIO(raw), formats=PHOTO_FORMATS)
+            # Размер известен из заголовка файла: огромную картинку отклоняем до декодирования.
+            limit = MAX_PHOTO_PIXELS if img.format == "JPEG" else MAX_PHOTO_PIXELS_FULL_DECODE
+            if img.width * img.height > limit:
+                raise HTTPException(400, PHOTO_TOO_BIG)
+            img.draft("RGB", (PHOTO_SIDE, PHOTO_SIDE))  # JPEG декодируется сразу в уменьшенном масштабе
+            # Сначала уменьшаем, потом поворачиваем и переводим в RGB: копии делаются уже с маленькой картинки.
+            img.thumbnail((PHOTO_SIDE, PHOTO_SIDE))
+            img = ImageOps.exif_transpose(img)
+            if img.mode != "RGB":
+                img = img.convert("RGB")
+            full = _jpeg(img, 82)
+            img.thumbnail((THUMB_SIDE, THUMB_SIDE))
+            return full, _jpeg(img, 70)
+        except HTTPException:
+            raise
+        except (Image.DecompressionBombError, Image.DecompressionBombWarning):
             raise HTTPException(400, PHOTO_TOO_BIG)
-        img.draft("RGB", (PHOTO_SIDE, PHOTO_SIDE))  # JPEG декодируется сразу в уменьшенном масштабе
-        img = ImageOps.exif_transpose(img).convert("RGB")
-    except (Image.DecompressionBombError, Image.DecompressionBombWarning):
-        raise HTTPException(400, PHOTO_TOO_BIG)
-    except (UnidentifiedImageError, OSError):
-        raise HTTPException(400, "Файл не похож на фото. Загрузите изображение чека.")
-    img.thumbnail((PHOTO_SIDE, PHOTO_SIDE))
-    full = _jpeg(img, 82)
-    img.thumbnail((THUMB_SIDE, THUMB_SIDE))
-    return full, _jpeg(img, 70)
+        except Exception:
+            # Битый файл, другой формат, бомба в метаданных PNG: Pillow бросает разные исключения
+            # (OSError, ValueError, SyntaxError…), для клиента это одно — «не фото».
+            raise HTTPException(400, NOT_A_PHOTO)
 
 
 def new_code(db: Session) -> str:
@@ -367,32 +385,41 @@ def client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-def rate_limit(db: Session, bucket: str, key: str, limit: int, window: timedelta) -> None:
-    """Считаем попытку в текущем окне и отвечаем 429, если их больше limit.
+def _window_start(window: timedelta) -> datetime:
+    ts = now().timestamp()
+    return datetime.fromtimestamp(ts - ts % window.total_seconds(), timezone.utc)
+
+
+def rate_hit(db: Session, bucket: str, key: str, window: timedelta) -> int:
+    """Засчитываем попытку в текущем окне и возвращаем их число.
 
     Счётчик увеличивается одним атомарным запросом (INSERT … ON CONFLICT DO UPDATE) и сразу
     сохраняется: попытка засчитывается, даже если запрос дальше завершится ошибкой.
     """
-    seconds = window.total_seconds()
-    ts = now().timestamp()
-    start = datetime.fromtimestamp(ts - ts % seconds, timezone.utc)
     insert = pg_insert if db.get_bind().dialect.name == "postgresql" else sqlite_insert
-    stmt = insert(RateHit).values(bucket=bucket, key=key[:64], window_start=start, hits=1)
+    stmt = insert(RateHit).values(bucket=bucket, key=key[:64], window_start=_window_start(window), hits=1)
     stmt = stmt.on_conflict_do_update(index_elements=["bucket", "key", "window_start"],
                                       set_={"hits": RateHit.hits + 1}).returning(RateHit.hits)
     hits = db.execute(stmt).scalar_one()
     db.commit()
-    if hits > limit:
+    return hits
+
+
+def rate_count(db: Session, bucket: str, key: str, window: timedelta) -> int:
+    """Число попыток в текущем окне, без увеличения счётчика."""
+    return db.scalar(select(RateHit.hits).where(RateHit.bucket == bucket, RateHit.key == key[:64],
+                                                RateHit.window_start == _window_start(window))) or 0
+
+
+def rate_limit(db: Session, bucket: str, key: str, limit: int, window: timedelta) -> None:
+    """Засчитываем попытку и отвечаем 429, если их в окне больше limit."""
+    if rate_hit(db, bucket, key, window) > limit:
         raise HTTPException(429, TOO_MANY_ATTEMPTS)
 
 
 def purge_rate_hits(db: Session) -> int:
     """Удаляем счётчики старше суток: самое длинное окно — час."""
     return db.execute(delete(RateHit).where(RateHit.window_start < now() - timedelta(days=1))).rowcount
-
-
-def login_rate_limit(request: Request, db: Session = Depends(get_db)) -> None:
-    rate_limit(db, "login", client_ip(request), RL_LOGIN_IP, LOGIN_WINDOW)
 
 
 def bearer(authorization: str) -> str:
@@ -500,10 +527,15 @@ class SmsRequest(BaseModel):
 
 
 @app.post("/api/sms/send")
-def sms_send(body: SmsRequest, db: Session = Depends(get_db)):
+def sms_send(body: SmsRequest, request: Request, db: Session = Depends(get_db)):
+    # Подтверждение выключено — адрес закрыт: иначе через него без лимитов проверяли бы, участвовал ли номер.
+    if not SMS_REQUIRED:
+        raise HTTPException(404, "Подтверждение номера не используется")
+    rate_limit(db, "sms_ip", client_ip(request), RL_REG_IP, REG_IP_WINDOW)
     phone = normalize_phone(body.phone)
     if not phone:
         raise HTTPException(400, "Введите номер в формате +996 XXX XXX XXX")
+    rate_limit(db, "sms_phone", phone, RL_REG_PHONE, REG_PHONE_WINDOW)
     # Не тратим SMS на номер, который уже получил машинку.
     taken = db.scalar(select(Registration).where(Registration.phone_lock == phone))
     if taken and not taken.expired():
@@ -679,12 +711,22 @@ class LoginBody(BaseModel):
     password: str
 
 
-@app.post("/api/auth/login", dependencies=[Depends(login_rate_limit)])
-def auth_login(body: LoginBody, db: Session = Depends(get_db)):
-    """Вход кассира или маркетинга по личному логину. Возвращает токен сессии, роль и АЗС."""
-    user = db.scalar(select(StaffUser).where(StaffUser.login == body.login.strip().lower()))
+@app.post("/api/auth/login")
+def auth_login(body: LoginBody, request: Request, db: Session = Depends(get_db)):
+    """Вход кассира или маркетинга по личному логину. Возвращает токен сессии, роль и АЗС.
+
+    Лимит считает только неудачные попытки: в начале смены кассиры многих АЗС входят одновременно,
+    иногда с одного IP (общий NAT). Строгий лимит — на пару «IP + логин», мягкий в 10 раз — на IP.
+    """
+    ip, login = client_ip(request), body.login.strip().lower()
+    if (rate_count(db, "login_fail", f"{ip}|{login}", LOGIN_WINDOW) >= RL_LOGIN_IP
+            or rate_count(db, "login_fail_ip", ip, LOGIN_WINDOW) >= RL_LOGIN_IP * 10):
+        raise HTTPException(429, TOO_MANY_ATTEMPTS)
+    user = db.scalar(select(StaffUser).where(StaffUser.login == login))
     ok = check_password(body.password, user.password_hash if user else _DUMMY_HASH)
     if not user or not user.active or not ok:
+        rate_hit(db, "login_fail", f"{ip}|{login}", LOGIN_WINDOW)
+        rate_hit(db, "login_fail_ip", ip, LOGIN_WINDOW)
         raise HTTPException(401, "Неверный логин или пароль")
     token, expires = start_session(db, user)
     audit(db, user, "login")
@@ -968,6 +1010,8 @@ def import_csv(kind: str, file: UploadFile = File(...), user: StaffUser = Depend
     matched = 0
     for row in rows:
         fn, fd, fm = (clean_digits(row.get(k)) for k in ("fn", "fd", "fm" if "fm" in row else "fp"))
+        if not (fn and fd and fm):
+            continue  # пустая ячейка дала бы условие IS NULL и задела все заявки без реквизитов
         regs = db.scalars(select(Registration).where(
             Registration.fn == fn, Registration.fd == fd, Registration.fm == fm)).all()
         for r in regs:

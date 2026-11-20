@@ -90,6 +90,10 @@ services:
       DRAW_RESET_ALLOWED: "true"
       WEB_CONCURRENCY: "1"
       DB_POOL_SIZE: "5"
+      # Свои лимиты стенда: для нагрузочного теста поднимают TEST_RL_*, а не RL_* — те у боевого API.
+      RL_REG_IP: ${TEST_RL_REG_IP:-60}
+      RL_REG_PHONE: ${TEST_RL_REG_PHONE:-5}
+      RL_LOGIN_IP: ${TEST_RL_LOGIN_IP:-10}
     depends_on:
       db-test: { condition: service_healthy }
     restart: unless-stopped

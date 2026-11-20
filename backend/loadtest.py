@@ -1,8 +1,9 @@
 """Нагрузочный тест и проверка критериев приёмки перед запуском акции.
 
 Запускать на тестовом стенде, не на боевой базе: тест создаёт настоящие заявки.
-Весь тест идёт с одного IP, поэтому на стенде на время прогона поднять лимиты:
-RL_REG_IP=1000000 RL_REG_PHONE=1000000 в deploy/.env, затем docker compose --profile test up -d.
+Весь тест идёт с одного IP, поэтому на время прогона поднять лимиты тестового стенда:
+TEST_RL_REG_IP=1000000 и TEST_RL_REG_PHONE=1000000 в deploy/.env, затем docker compose --profile test up -d.
+Не трогайте RL_*: это лимиты боевого API. Фото — --photo real: так виден настоящий размер базы и дампов.
 
     pip install httpx pillow       # если запускаете не из окружения проекта
     python loadtest.py --base https://test-client.example.kg --run 10000 --concurrency 50 \\
