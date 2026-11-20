@@ -16,13 +16,14 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel
 from sqlalchemy import (Boolean, DateTime, ForeignKey, LargeBinary, String, Text,
                         create_engine, select)
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import TimeoutError as PoolTimeout
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship
 
 
@@ -57,7 +58,12 @@ DRAW_RESET_ALLOWED = os.getenv("DRAW_RESET_ALLOWED", "false").lower() == "true"
 # Локально сервер отдаёт и три сайта (клиент, касса, админка). В проде они живут на отдельных адресах.
 SERVE_WEB = os.getenv("SERVE_WEB", "true").lower() == "true"
 
-engine = create_engine(_db_url(), pool_pre_ping=True)
+DB_URL = _db_url()
+# Пул соединений настраиваем только для Postgres: у SQLite свой пул, который этих параметров не принимает.
+# pool_timeout короткий: при перегрузке клиент быстрее получит 503, чем будет ждать полминуты.
+_POOL = (dict(pool_size=int(os.getenv("DB_POOL_SIZE", "10")), max_overflow=5, pool_timeout=10)
+         if DB_URL.startswith("postgresql") else {})
+engine = create_engine(DB_URL, pool_pre_ping=True, **_POOL)
 
 
 def now() -> datetime:
@@ -200,7 +206,8 @@ Base.metadata.create_all(engine)
 
 
 def get_db():
-    with Session(engine) as db:
+    # expire_on_commit=False: после commit ответ собирается из уже загруженных полей, без лишнего запроса.
+    with Session(engine, expire_on_commit=False) as db:
         yield db
 
 
@@ -285,6 +292,12 @@ app.add_middleware(
 )
 
 
+@app.exception_handler(PoolTimeout)
+async def db_overloaded(request, exc):
+    # Все соединения с базой заняты дольше pool_timeout: просим повторить, а не отдаём 500.
+    return JSONResponse({"detail": "Сервер перегружен. Попробуйте ещё раз через минуту."}, status_code=503)
+
+
 @app.get("/api/health")
 def health():
     return {"ok": True}
@@ -364,8 +377,11 @@ def conflict_message(db: Session, phone: str, fiscal_key: str | None) -> str:
     return "Не удалось зарегистрировать чек. Попробуйте ещё раз."
 
 
+# Обработчики с базой и Pillow объявлены через def, а не async def: FastAPI выполняет их в пуле потоков.
+# В async def этот синхронный код блокировал бы event loop, и при исчерпании пула соединений
+# сервер зависал целиком (B1 в аудите).
 @app.post("/api/registrations")
-async def create_registration(
+def create_registration(
     phone: str = Form(...),
     consent: bool = Form(...),
     photo: UploadFile = File(...),
@@ -384,7 +400,7 @@ async def create_registration(
     if not consent:
         raise HTTPException(400, "Нужно согласие с правилами акции и обработкой данных")
 
-    raw = await photo.read(MAX_PHOTO_BYTES + 1)
+    raw = photo.file.read(MAX_PHOTO_BYTES + 1)
     if len(raw) > MAX_PHOTO_BYTES:
         raise HTTPException(400, "Фото слишком большое (больше 10 МБ)")
     photo_data = process_photo(raw)
@@ -629,11 +645,11 @@ def read_csv_rows(raw: bytes) -> list[dict]:
 
 
 @app.post("/api/admin/import/{kind}", dependencies=[Depends(require_admin)])
-async def import_csv(kind: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
+def import_csv(kind: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
     """Сверка с выгрузками кассы. CSV с колонками fn;fd;fm (колонка fp тоже подходит вместо fm)."""
     if kind not in ("sales", "returns"):
         raise HTTPException(404, "Неизвестный тип выгрузки")
-    rows = read_csv_rows(await file.read())
+    rows = read_csv_rows(file.file.read())
     if rows and not ({"fn", "fd"} <= rows[0].keys() and ({"fm", "fp"} & rows[0].keys())):
         raise HTTPException(400, "В CSV нужны колонки fn, fd, fm")
     matched = 0

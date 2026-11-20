@@ -181,8 +181,49 @@ def test_parallel_same_receipt():
     assert sorted(results) == [200, 409], results
 
 
+def test_parallel_registrations_small_pool():
+    """20 одновременных регистраций при пуле в 2 соединения: все приняты, API не зависает (B1)."""
+    import tempfile, time
+    db_file = Path(tempfile.mkdtemp()) / "pool.db"
+    backend.engine = backend.create_engine(f"sqlite:///{db_file}", pool_size=2, max_overflow=0,
+                                           pool_timeout=8, connect_args={"timeout": 15})
+    backend.Base.metadata.create_all(backend.engine)
+    results = []
+    # Общий event loop на все запросы, как у uvicorn: без with у TestClient зависание не воспроизводится.
+    with TestClient(backend.app, raise_server_exceptions=False) as c:
+        def go(i):
+            r = c.post("/api/registrations",
+                       data={"phone": f"+996 777 100 {i:03d}", "consent": "true", "fn": "31", "fd": str(i), "fm": "1"},
+                       files={"photo": ("r.jpg", jpeg(), "image/jpeg")})
+            results.append(r.status_code)
+        threads = [threading.Thread(target=go, args=(i,), daemon=True) for i in range(20)]
+        [t.start() for t in threads]
+        deadline = time.time() + 40
+        [t.join(timeout=max(0, deadline - time.time())) for t in threads]
+        if any(t.is_alive() for t in threads):
+            print("FAIL test_parallel_registrations_small_pool: API завис, запросы не завершились за 40 с", flush=True)
+            os._exit(1)  # event loop заблокирован, корректно закрыть клиент нельзя
+    assert results == [200] * 20, results
+
+
+def test_pool_exhausted_returns_503():
+    """База не отдаёт соединение: клиент получает понятный 503, а не 500."""
+    import tempfile
+    backend.engine = backend.create_engine(f"sqlite:///{Path(tempfile.mkdtemp()) / 'p.db'}",
+                                           pool_size=1, max_overflow=0, pool_timeout=0.2)
+    backend.Base.metadata.create_all(backend.engine)
+    held = backend.engine.connect()  # занимаем единственное соединение
+    try:
+        r = client.get("/api/registrations/status/nope")
+        assert r.status_code == 503 and "перегружен" in r.json()["detail"]
+    finally:
+        held.close()
+
+
 if __name__ == "__main__":
     test_flow()
     test_draw()
     test_parallel_same_receipt()
+    test_parallel_registrations_small_pool()
+    test_pool_exhausted_returns_503()
     print("OK")
