@@ -10,23 +10,25 @@ import hashlib
 import io
 import os
 import random
+import re
 import secrets
 import warnings
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal
 
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel
-from sqlalchemy import (Boolean, DateTime, ForeignKey, LargeBinary, String, Text,
-                        create_engine, select)
+from sqlalchemy import (Boolean, DateTime, ForeignKey, Index, LargeBinary, String, Text,
+                        create_engine, func, or_, select, update)
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.exc import TimeoutError as PoolTimeout
-from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship
+from sqlalchemy.orm import (DeclarativeBase, Mapped, Session, contains_eager, mapped_column, relationship,
+                            selectinload)
 
 
 # ---------- настройки ----------
@@ -63,6 +65,7 @@ SMS_RESEND = timedelta(seconds=30)
 SMS_MAX_ATTEMPTS = 5
 # Заявка, по которой машинку так и не выдали, перестаёт держать номер и чек.
 WAITING_TTL = timedelta(hours=int(os.getenv("WAITING_TTL_HOURS", "3")))
+EXPIRED_REASON = "Игрушку не забрали вовремя"
 DRAW_PRIZES = int(os.getenv("DRAW_PRIZES", "8"))  # 8 поездок на новогоднем караване
 # Сброс розыгрыша нужен только на тестовом стенде, в проде он выключен.
 DRAW_RESET_ALLOWED = os.getenv("DRAW_RESET_ALLOWED", "false").lower() == "true"
@@ -105,6 +108,13 @@ class Registration(Base):
     не дают зарегистрировать тот же номер или чек дважды, в том числе одновременно на двух АЗС.
     """
     __tablename__ = "registrations"
+    __table_args__ = (
+        # Очередь кассы и реестр выбирают по статусу, АЗС и дате, сверка с кассой ищет по реквизитам чека.
+        Index("ix_registrations_status_created", "status", "created_at"),
+        Index("ix_registrations_issued_at", "issued_at"),
+        Index("ix_registrations_fiscal", "fn", "fd", "fm"),
+        Index("ix_registrations_station_status", "station", "status"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     code: Mapped[str] = mapped_column(String(16), unique=True)  # «123 ABC», показывается кассиру
@@ -384,6 +394,20 @@ def phone_taken_message(r: Registration) -> str:
     return "Этот номер уже получил игрушечный караван. По условиям акции игрушка выдаётся один раз на номер."
 
 
+def release_all_expired(db: Session) -> int:
+    """Одним запросом освобождаем номер и чек у всех заявок, по которым игрушку не выдали за WAITING_TTL.
+
+    Возвращает число освобождённых заявок. Объекты, уже загруженные в сессию, не обновляются,
+    поэтому вызывать до чтения списков.
+    """
+    result = db.execute(
+        update(Registration)
+        .where(Registration.status == "waiting", Registration.created_at < now() - WAITING_TTL)
+        .values(status="cancelled", status_reason=EXPIRED_REASON, phone_lock=None, receipt_lock=None)
+        .execution_options(synchronize_session=False))
+    return result.rowcount
+
+
 def release_expired(db: Session, phone: str, fiscal_key: str | None) -> None:
     """Освобождаем номер и чек, если их держит заявка, по которой машинку так и не выдали."""
     conds = [Registration.phone_lock == phone]
@@ -392,7 +416,7 @@ def release_expired(db: Session, phone: str, fiscal_key: str | None) -> None:
     for r in db.scalars(select(Registration).where(Registration.status == "waiting")
                         .where(conds[0] if len(conds) == 1 else (conds[0] | conds[1]))):
         if r.expired():
-            r.release("cancelled", "Игрушку не забрали вовремя")
+            r.release("cancelled", EXPIRED_REASON)
     db.flush()
 
 
@@ -467,7 +491,7 @@ def registration_status(token: str, db: Session = Depends(get_db)):
     if not r:
         raise HTTPException(404, "Заявка не найдена")
     if r.expired():
-        r.release("cancelled", "Игрушку не забрали вовремя")
+        r.release("cancelled", EXPIRED_REASON)
         db.commit()
     return {"code": r.code, "status": r.status, "reason": r.status_reason,
             "entry": r.entry.number if r.entry else None}
@@ -504,22 +528,36 @@ def cashier_login():
     return {"ok": True}
 
 
+def code_matches(text: str):
+    """Код заявки без учёта пробела и регистра: кассир может набрать «123abc» или часть кода."""
+    return func.replace(Registration.code, " ", "").contains(text.upper(), autoescape=True)
+
+
 @app.get("/api/cashier/queue", dependencies=[Depends(require_cashier)])
-def cashier_queue(db: Session = Depends(get_db)):
-    """Заявки, ожидающие выдачи, и последние выданные — по всем АЗС, свежие сверху."""
-    waiting = db.scalars(select(Registration).where(Registration.status == "waiting")
-                         .order_by(Registration.created_at.desc())).all()
-    changed = False
-    for r in waiting:
-        if r.expired():
-            r.release("cancelled", "Игрушку не забрали вовремя")
-            changed = True
-    if changed:
+def cashier_queue(station: str = "", q: str = "", db: Session = Depends(get_db)):
+    """Заявки, ожидающие выдачи, и последние выданные, свежие сверху.
+
+    Кассир видит заявки своей АЗС и заявки без АЗС (QR без номера кассы). Заявку другой АЗС
+    находит поиском по коду с экрана клиента.
+    """
+    if release_all_expired(db):
         db.commit()
-    recent = db.scalars(select(Registration).where(Registration.status == "issued")
-                        .order_by(Registration.issued_at.desc()).limit(10)).all()
-    return {"waiting": [cashier_view(r) for r in waiting if r.status == "waiting"],
-            "recent": [cashier_view(r) for r in recent]}
+    station = clean_station(station)
+    code = "".join(q.split())
+    waiting = (select(Registration).options(selectinload(Registration.entry))
+               .where(Registration.status == "waiting").order_by(Registration.created_at.desc()))
+    if len(code) >= 3:
+        waiting = waiting.where(code_matches(code)).limit(20)
+    elif station:
+        waiting = waiting.where(or_(Registration.station == station, Registration.station.is_(None))).limit(50)
+    else:
+        waiting = waiting.limit(50)
+    recent = (select(Registration).options(selectinload(Registration.entry))
+              .where(Registration.status == "issued").order_by(Registration.issued_at.desc()).limit(10))
+    if station:
+        recent = recent.where(Registration.issued_station == station)
+    return {"waiting": [cashier_view(r) for r in db.scalars(waiting)],
+            "recent": [cashier_view(r) for r in db.scalars(recent)]}
 
 
 PhotoSize = Literal["full", "thumb"]
@@ -605,19 +643,62 @@ def admin_login():
     return {"ok": True}
 
 
+STATUSES = ("waiting", "issued", "cancelled", "disqualified")
+RegistryFilter = Literal["", "waiting", "issued", "unchecked", "cancelled", "disqualified"]
+
+
+def registry_stats(db: Session) -> dict:
+    """Плитки реестра: число заявок по статусам по всей базе, а не по текущей странице."""
+    counts = dict(db.execute(select(Registration.status, func.count()).group_by(Registration.status)).all())
+    unchecked = db.scalar(select(func.count()).select_from(Registration).where(
+        Registration.status == "issued", Registration.check_purchase.is_(False)))
+    return {"total": sum(counts.values()), **{s: counts.get(s, 0) for s in STATUSES}, "unchecked": unchecked}
+
+
+def registry_filter(status: str, q: str) -> list:
+    """Условия отбора реестра: статус и поиск по коду, номеру участника, телефону или реквизитам чека."""
+    cond = []
+    if status == "unchecked":
+        cond += [Registration.status == "issued", Registration.check_purchase.is_(False)]
+    elif status:
+        cond.append(Registration.status == status)
+    text = "".join(q.split())
+    entry = re.fullmatch(r"KN-?(\d+)", text, re.IGNORECASE)
+    if entry:
+        cond.append(Registration.entry.has(Entry.id == int(entry.group(1))))
+    elif text:
+        alts = [code_matches(text)]
+        # Цифры ищем по телефону и реквизитам, только если запрос целиком из цифр: иначе «123 ABC»
+        # находил бы все телефоны с «123».
+        if text.lstrip("+").isdigit():
+            digits = text.lstrip("+")
+            alts += [Registration.phone.contains(digits, autoescape=True),
+                     Registration.fn == digits, Registration.fd == digits, Registration.fm == digits]
+        cond.append(or_(*alts))
+    return cond
+
+
 @app.get("/api/admin/registrations", dependencies=[Depends(require_admin)])
-def list_registrations(db: Session = Depends(get_db)):
-    regs = db.scalars(select(Registration).order_by(Registration.created_at.desc())).all()
-    items = [admin_view(r) for r in regs]
-    stats = {
-        "total": len(items),
-        "waiting": sum(i["status"] == "waiting" for i in items),
-        "issued": sum(i["status"] == "issued" for i in items),
-        "cancelled": sum(i["status"] == "cancelled" for i in items),
-        "disqualified": sum(i["status"] == "disqualified" for i in items),
-        "unchecked": sum(i["status"] == "issued" and not i["check_purchase"] for i in items),
-    }
-    return {"items": items, "stats": stats}
+def list_registrations(status: RegistryFilter = "", q: str = "",
+                       page: int = Query(1, ge=1), per_page: int = Query(50, ge=1, le=200),
+                       db: Session = Depends(get_db)):
+    """Реестр постранично: фильтр и поиск выполняет база, браузер получает одну страницу."""
+    if release_all_expired(db):
+        db.commit()
+    cond = registry_filter(status, q)
+    total = db.scalar(select(func.count()).select_from(Registration).where(*cond))
+    regs = db.scalars(select(Registration).options(selectinload(Registration.entry)).where(*cond)
+                      .order_by(Registration.created_at.desc(), Registration.id.desc())
+                      .offset((page - 1) * per_page).limit(per_page))
+    return {"items": [admin_view(r) for r in regs], "total": total, "page": page, "per_page": per_page,
+            "stats": registry_stats(db)}
+
+
+@app.get("/api/admin/stats", dependencies=[Depends(require_admin)])
+def admin_stats(db: Session = Depends(get_db)):
+    if release_all_expired(db):
+        db.commit()
+    return registry_stats(db)
 
 
 @app.get("/api/admin/registrations/{reg_id}/photo", dependencies=[Depends(require_admin)])
@@ -722,7 +803,8 @@ def export_csv(db: Session = Depends(get_db)):
                 "Статус", "Причина", "Выдано", "АЗС выдачи", "Покупка сверена", "Возврат",
                 "Номер участника"])
     yes = lambda v: "да" if v else "нет"
-    for r in db.scalars(select(Registration).order_by(Registration.created_at)):
+    for r in db.scalars(select(Registration).options(selectinload(Registration.entry))
+                        .order_by(Registration.created_at)):
         w.writerow([r.code, as_utc(r.created_at).isoformat(), r.station, r.phone, yes(r.phone_verified),
                     r.fn, r.fd, r.fm, r.receipt_sum, STATUS_RU[r.status], r.status_reason,
                     as_utc(r.issued_at).isoformat() if r.issued_at else "", r.issued_station,
@@ -735,10 +817,12 @@ def export_csv(db: Session = Depends(get_db)):
 
 def eligible(db: Session, only_checked: bool) -> list[Registration]:
     """Участники: машинка выдана, возврата не было; при only_checked — покупка сверена с продажами."""
-    q = select(Registration).where(Registration.status == "issued", Registration.returned.is_(False))
+    # join с Entry вместо проверки r.entry в Python: один запрос на всех участников.
+    q = (select(Registration).join(Registration.entry).options(contains_eager(Registration.entry))
+         .where(Registration.status == "issued", Registration.returned.is_(False)))
     if only_checked:
         q = q.where(Registration.check_purchase.is_(True))
-    return [r for r in db.scalars(q) if r.entry]
+    return list(db.scalars(q))
 
 
 def draw_view(d: Draw) -> dict:

@@ -47,6 +47,12 @@ def queue() -> dict:
     return {r["code"]: r for r in client.get("/api/cashier/queue", headers=KASSA).json()["waiting"]}
 
 
+def queue_by_code(code: str, headers: dict | None = None) -> dict:
+    """Заявка из очереди кассы по коду, как её ищет кассир."""
+    r = client.get("/api/cashier/queue", params={"q": code.replace(" ", "")}, headers=headers or KASSA)
+    return r.json()["waiting"][0]
+
+
 def fresh_db() -> None:
     """Новая пустая база в памяти: тест не зависит от данных предыдущих тестов."""
     backend.engine = backend.create_engine("sqlite://", poolclass=StaticPool,
@@ -244,6 +250,47 @@ def test_photo_limits_and_thumb():
     assert max(Image.open(io.BytesIO(full.content)).size) == 1800
 
 
+def test_cashier_queue_by_station_and_code():
+    """Кассир видит свою АЗС и заявки без АЗС; по коду находит заявку любой АЗС (B3)."""
+    fresh_db()
+    a = register("+996555000401", station="7", fn="71", fd="1", fm="1").json()["code"]
+    b = register("+996555000402", station="3", fn="71", fd="2", fm="1").json()["code"]
+    c = register("+996555000403", station="", fn="71", fd="3", fm="1").json()["code"]
+    q7 = {r["code"] for r in client.get("/api/cashier/queue?station=7", headers=KASSA).json()["waiting"]}
+    assert a in q7 and c in q7 and b not in q7
+    found = client.get(f"/api/cashier/queue?station=7&q={b.replace(' ', '').lower()}", headers=KASSA).json()
+    assert [r["code"] for r in found["waiting"]] == [b]
+
+
+def test_admin_registrations_paginated():
+    """Реестр отдаётся страницами, фильтр и поиск работают на сервере, статистика по всей базе (B2)."""
+    fresh_db()
+    codes = [register(f"+996555{i:06d}", fn="81", fd=str(i), fm="1").json()["code"] for i in range(120)]
+    for code in codes[:5]:
+        client.post(f"/api/cashier/registrations/{queue_by_code(code)['id']}/issue", headers=KASSA, json={"station": "1"})
+    r = client.get("/api/admin/registrations?page=2&per_page=50", headers=ADMIN).json()
+    assert r["total"] == 120 and len(r["items"]) == 50 and r["page"] == 2
+    assert r["stats"]["total"] == 120 and r["stats"]["issued"] == 5 and r["stats"]["waiting"] == 115
+    issued = client.get("/api/admin/registrations?status=issued", headers=ADMIN).json()
+    assert issued["total"] == 5 and {i["status"] for i in issued["items"]} == {"issued"}
+    assert client.get("/api/admin/registrations?q=555000077", headers=ADMIN).json()["total"] == 1
+    entry = issued["items"][0]["entry"]
+    assert client.get(f"/api/admin/registrations?q={entry}", headers=ADMIN).json()["total"] == 1
+
+
+def test_expired_released_in_bulk():
+    """Просроченные заявки освобождаются одним запросом, номер и чек снова свободны."""
+    fresh_db()
+    [register(f"+996555000{i}50", fn="91", fd=str(i), fm="1").json()["code"] for i in range(3)]
+    with backend.Session(backend.engine) as db:
+        for r in db.scalars(backend.select(backend.Registration)):
+            r.created_at = backend.now() - backend.WAITING_TTL - timedelta(minutes=1)
+        db.commit()
+        assert backend.release_all_expired(db) == 3
+        db.commit()
+    assert register("+996555000050", fn="91", fd="0", fm="1").status_code == 200  # номер и чек освободились
+
+
 if __name__ == "__main__":
     test_flow()
     test_draw()
@@ -251,4 +298,7 @@ if __name__ == "__main__":
     test_parallel_registrations_small_pool()
     test_pool_exhausted_returns_503()
     test_photo_limits_and_thumb()
+    test_cashier_queue_by_station_and_code()
+    test_admin_registrations_paginated()
+    test_expired_released_in_bulk()
     print("OK")
