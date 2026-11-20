@@ -4,11 +4,12 @@
 #   API_URL    — адрес API, например https://api.karavan.example
 #   CLIENT_URL — адрес сайта клиента (нужен админке для QR на кассах)
 #   DEMO       — true для тестового стенда (плашка «Тестовая версия», тестовые чеки), по умолчанию false
+#   OUT_DIR    — куда собирать, по умолчанию dist (тестовый стенд: dist/test)
 set -euo pipefail
 app="${1:?usage: build.sh client|kassa|admin}"
 demo="${DEMO:-false}"
 case "$demo" in true|false) ;; *) echo "DEMO должен быть true или false" >&2; exit 1 ;; esac
-out="dist/$app"
+out="${OUT_DIR:-dist}/$app"
 rm -rf "$out"
 mkdir -p "$out"
 cp -r "web/$app/." "$out/"

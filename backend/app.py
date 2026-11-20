@@ -37,7 +37,7 @@ from sqlalchemy.orm import (DeclarativeBase, Mapped, Session, contains_eager, ma
 
 def _db_url() -> str:
     url = os.getenv("DATABASE_URL", "sqlite:///./promo.db")
-    # Render отдаёт postgres:// или postgresql:// — указываем драйвер psycopg 3.
+    # Хостинги отдают postgres:// или postgresql:// — указываем драйвер psycopg 3.
     for prefix in ("postgres://", "postgresql://"):
         if url.startswith(prefix):
             return "postgresql+psycopg://" + url[len(prefix):]
@@ -1140,7 +1140,7 @@ def reset_draw(user: StaffUser = Depends(require_admin), db: Session = Depends(g
 
 
 # Локально тот же сервер отдаёт три сайта: клиент на /, касса на /kassa/, админка на /admin/.
-# В проде это отдельные статические сайты на своих адресах (см. build.sh и render.yaml).
+# В проде сайты собирает build.sh, а отдаёт Caddy на своих адресах (см. deploy/).
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 if SERVE_WEB and WEB_DIR.is_dir():
     shared = StaticFiles(directory=WEB_DIR / "shared")

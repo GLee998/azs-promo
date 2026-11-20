@@ -1,0 +1,76 @@
+# Три сайта акции на одном сервере. На каждом /api/* уходит в API, поэтому браузеру не нужен CORS.
+# Адреса сайтов задаются в deploy/.env (CLIENT_HOST, KASSA_HOST, ADMIN_HOST). HTTPS Caddy выпускает сам.
+
+(common) {
+	encode zstd gzip
+	request_body {
+		max_size 12MB
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		Content-Security-Policy "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'"
+		-Server
+	}
+	# Стили и скрипты в адресах несут версию (?v=), библиотеки и шрифты в vendor/ не меняются:
+	# браузер держит их год. Картинки версии не несут — сутки. HTML всегда проверяется заново.
+	@versioned {
+		path *.css *.js
+		query v=*
+	}
+	header @versioned Cache-Control "public, max-age=31536000, immutable"
+	header /shared/vendor/* Cache-Control "public, max-age=31536000, immutable"
+	header /shared/img/* Cache-Control "public, max-age=86400"
+	@html path / *.html
+	header @html Cache-Control "no-cache"
+}
+
+# Касса и админка: служебные страницы, без поисковиков и без встраивания в чужие сайты.
+(staff) {
+	header {
+		X-Frame-Options DENY
+		X-Robots-Tag noindex
+	}
+}
+
+(site) {
+	import common
+	handle /api/* {
+		reverse_proxy {args[0]}:8000
+	}
+	handle {
+		root * /srv/{args[1]}
+		file_server
+	}
+}
+
+{$CLIENT_HOST} {
+	import site api client
+}
+
+{$KASSA_HOST} {
+	import site api kassa
+	import staff
+}
+
+{$ADMIN_HOST} {
+	import site api admin
+	import staff
+}
+
+# ---------- тестовый стенд (docker compose --profile test): сайты из dist/test, API api-test ----------
+
+{$TEST_CLIENT_HOST} {
+	import site api-test test/client
+}
+
+{$TEST_KASSA_HOST} {
+	import site api-test test/kassa
+	import staff
+}
+
+{$TEST_ADMIN_HOST} {
+	import site api-test test/admin
+	import staff
+}

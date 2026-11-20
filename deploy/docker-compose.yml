@@ -1,0 +1,102 @@
+# Прод на одном сервере: Caddy (HTTPS и три сайта) → API → Postgres.
+# Запуск из каталога deploy/: docker compose up -d --build
+# Тестовый стенд на том же сервере: docker compose --profile test up -d --build
+name: karavan
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "5" }
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: promo
+      POSTGRES_USER: promo
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?заполните deploy/.env}
+    # Под 4 ГБ RAM: четверть памяти под кэш Postgres.
+    command: postgres -c shared_buffers=1GB -c max_connections=100
+    volumes: [db:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U promo -d promo"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    logging: *logging
+
+  api:
+    build: ../backend
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://promo:${POSTGRES_PASSWORD}@db:5432/promo
+    depends_on:
+      db: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    logging: *logging
+
+  caddy:
+    image: caddy:2
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+      - "${HTTPS_PORT:-443}:443/udp"
+    environment:
+      CLIENT_HOST: ${CLIENT_HOST:?заполните deploy/.env}
+      KASSA_HOST: ${KASSA_HOST:?заполните deploy/.env}
+      ADMIN_HOST: ${ADMIN_HOST:?заполните deploy/.env}
+      # Без тестового стенда эти адреса никуда не ведут: .localhost снаружи не открыть.
+      TEST_CLIENT_HOST: ${TEST_CLIENT_HOST:-test-client.localhost}
+      TEST_KASSA_HOST: ${TEST_KASSA_HOST:-test-kassa.localhost}
+      TEST_ADMIN_HOST: ${TEST_ADMIN_HOST:-test-admin.localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../dist:/srv:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [api]
+    restart: unless-stopped
+    logging: *logging
+
+  # ---------- тестовый стенд (profile test): своя база, DEMO-сборка сайтов, сброс розыгрыша разрешён ----------
+  db-test:
+    profiles: [test]
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: promo
+      POSTGRES_USER: promo
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    command: postgres -c shared_buffers=128MB -c max_connections=30
+    volumes: [db_test:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U promo -d promo"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    logging: *logging
+
+  api-test:
+    profiles: [test]
+    build: ../backend
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://promo:${POSTGRES_PASSWORD}@db-test:5432/promo
+      DRAW_RESET_ALLOWED: "true"
+      WEB_CONCURRENCY: "1"
+      DB_POOL_SIZE: "5"
+    depends_on:
+      db-test: { condition: service_healthy }
+    restart: unless-stopped
+    logging: *logging
+
+volumes:
+  db:
+  db_test:
+  caddy_data:
+  caddy_config:
