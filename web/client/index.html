@@ -7,9 +7,7 @@
   <title>Караван Coca‑Cola: регистрация чека</title>
   <meta name="description" content="Partner Neft x Coca‑Cola. Новогоднее чудо вместе с Караваном Coca‑Cola: 2 френч-дога + 2 бутылки Coca‑Cola 0,5 л = игрушечный караван и шанс на поездку.">
   <link rel="icon" href="shared/img/caravan-truck.svg" type="image/svg+xml">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=Russo+One&family=Unbounded:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="shared/vendor/fonts.css">
   <link rel="stylesheet" href="shared/style.css">
 </head>
 <body>
@@ -27,7 +25,7 @@
             <button type="button" data-lang="ru" aria-pressed="true">Рус</button>
             <button type="button" data-lang="ky" aria-pressed="false">Кыр</button>
           </div>
-          <span class="demo-pill" data-i18n="demo">Тестовая версия</span>
+          <span class="demo-pill demo-only" data-i18n="demo">Тестовая версия</span>
         </div>
       </div>
 
@@ -155,12 +153,13 @@
     <a href="privacy.html" data-i18n="footPrivacy">Политика обработки персональных данных</a>
   </footer>
 
-  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/gsap@3.13.0/dist/gsap.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
+  <script src="shared/vendor/jsQR.js"></script>
+  <script src="shared/vendor/gsap.min.js"></script>
+  <script src="shared/vendor/confetti.browser.js"></script>
   <script src="shared/config.js"></script>
   <script src="shared/api.js"></script>
   <script src="i18n.js"></script>
+  <script src="phone.js"></script>
   <script src="form.js"></script>
   <script src="fx.js"></script>
 </body>

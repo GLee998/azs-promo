@@ -6,15 +6,13 @@
   <meta name="robots" content="noindex">
   <title>Розыгрыш поездок</title>
   <link rel="icon" href="shared/img/caravan-truck.svg" type="image/svg+xml">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=Russo+One&family=Unbounded:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="shared/vendor/fonts.css">
   <link rel="stylesheet" href="shared/style.css">
 </head>
 <body>
   <div class="topbar">
     <h1><img src="shared/img/logo-white.svg" alt="Partner Neft">Админка</h1>
-    <nav class="admin-nav"><a href="./">Реестр</a><a href="draw.html" aria-current="page">Розыгрыш</a><a href="stand.html">QR для касс</a><a href="test-receipt.html">Тестовые чеки</a></nav>
+    <nav class="admin-nav"><a href="./">Реестр</a><a href="draw.html" aria-current="page">Розыгрыш</a><a href="stand.html">QR для касс</a><a class="demo-only" href="test-receipt.html">Тестовые чеки</a></nav>
   </div>
 
   <main class="login" id="loginView">
@@ -72,7 +70,7 @@
 
   <div class="toast hidden" id="toast" role="status"></div>
 
-  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
+  <script src="shared/vendor/confetti.browser.js"></script>
   <script src="shared/config.js"></script>
   <script src="shared/api.js"></script>
   <script src="draw.js"></script>

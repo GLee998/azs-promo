@@ -456,6 +456,16 @@ def test_manage_cli():
         assert db.scalar(backend.select(backend.func.count()).select_from(backend.StaffSession)) == 0
 
 
+def test_phone_normalization():
+    """Неполный номер после «+996» не превращается в другой, правдоподобный номер (F1)."""
+    n = backend.normalize_phone
+    assert n("+996 700 123 456") == "+996700123456"
+    assert n("+996 0700 123 456") == "+996700123456"
+    assert n("0700 123 456") == "+996700123456"
+    assert n("700123456") == "+996700123456"
+    assert n("+996 700 123") is None
+
+
 if __name__ == "__main__":
     test_flow()
     test_draw()
@@ -473,4 +483,5 @@ if __name__ == "__main__":
     test_concurrent_issue_single_winner()
     test_session_expiry_and_logout()
     test_manage_cli()
+    test_phone_normalization()
     print("OK")

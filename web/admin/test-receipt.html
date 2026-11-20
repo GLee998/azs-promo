@@ -6,13 +6,11 @@
   <meta name="robots" content="noindex">
   <title>Тестовые чеки</title>
   <link rel="icon" href="shared/img/caravan-truck.svg" type="image/svg+xml">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=Russo+One&family=Unbounded:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="shared/vendor/fonts.css">
   <link rel="stylesheet" href="shared/style.css">
 </head>
 <body>
-  <div class="topbar"><h1><img src="shared/img/logo-white.svg" alt="Partner Neft">Админка</h1><nav class="admin-nav"><a href="./">Реестр</a><a href="draw.html">Розыгрыш</a><a href="stand.html">QR для касс</a><a href="test-receipt.html" aria-current="page">Тестовые чеки</a></nav></div>
+  <div class="topbar"><h1><img src="shared/img/logo-white.svg" alt="Partner Neft">Админка</h1><nav class="admin-nav"><a href="./">Реестр</a><a href="draw.html">Розыгрыш</a><a href="stand.html">QR для касс</a><a class="demo-only" href="test-receipt.html" aria-current="page">Тестовые чеки</a></nav></div>
   <main class="wrap wide" style="max-width:720px">
     <p class="notice">Страница для демонстрации без настоящей кассы. Она создаёт образец с QR-кодом в формате кассового чека
       и выгрузки «продажи» и «возвраты» для сверки в реестре. Это не фискальный документ.</p>
@@ -38,79 +36,7 @@
     </section>
   </main>
 
-  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
-  <script>
-    const $ = id => document.getElementById(id);
-    const KEY = 'promo_test_receipts';
-    let receipts = [];
-    try { receipts = JSON.parse(localStorage.getItem(KEY)) || []; } catch {}
-    const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(receipts)); } catch {} };
-    const digits = n => Array.from({ length: n }, (_, i) => (i === 0 ? 1 + Math.floor(Math.random() * 9) : Math.floor(Math.random() * 10))).join('');
-    const PRICE = 450;
-
-    function qrString(r) {
-      return `https://tax.salyk.kg/client/api/v1/ticket?date=${r.t}&type=3&operation_type=1&fn_number=${r.fn}&fd_number=${r.fd}&fm=${r.fp}&sum=${r.sum}`;
-    }
-
-    function renderReceipt(r) {
-      const qr = qrcode(0, 'M');
-      qr.addData(qrString(r));
-      qr.make();
-      $('receipt').innerHTML = `
-        <div class="stamp">ТЕСТОВЫЙ ОБРАЗЕЦ</div>
-        <div style="text-align:center">АЗС · ДЕМО<br>Кассовый чек · Приход</div><hr>
-        <div class="line"><span>Комбо «Караван Coca-Cola»</span><span>${r.sum} сом</span></div>
-        <div class="line"><b>ИТОГО</b><b>${r.sum} сом</b></div><hr>
-        <div>ФН ${r.fn}</div><div>ФД ${r.fd}</div><div>ФМ ${r.fp}</div>
-        <div id="rqr">${qr.createSvgTag({ cellSize: 5, margin: 4, scalable: false })}</div>`;
-      $('receipt').dataset.qr = qr.createDataURL(8, 16);
-      $('receipt').classList.remove('hidden');
-      $('savePng').classList.remove('hidden');
-    }
-
-    function updateCount() { $('count').textContent = receipts.length; }
-
-    $('gen').onclick = () => {
-      const qty = 1;
-      const d = new Date();
-      const p = v => String(v).padStart(2, '0');
-      const r = {
-        fn: '0000' + digits(12), fd: digits(5), fp: digits(10), qty,
-        sum: (PRICE * qty).toFixed(2),
-        t: `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}T${p(d.getHours())}${p(d.getMinutes())}`,
-      };
-      receipts.push(r);
-      persist();
-      updateCount();
-      renderReceipt(r);
-    };
-
-    // Для загрузки в форму достаточно картинки QR-кода с реквизитами.
-    $('savePng').onclick = () => {
-      const a = document.createElement('a');
-      a.href = $('receipt').dataset.qr;
-      a.download = 'test-receipt-qr.gif';
-      a.click();
-    };
-
-    function download(name, rows) {
-      if (!receipts.length) return alert('Сначала создайте чек');
-      const blob = new Blob(['﻿' + rows.join('\n')], { type: 'text/csv' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = name;
-      a.click();
-    }
-
-    $('dlSales').onclick = () => download('sales.csv', ['fn;fd;fm', ...receipts.map(r => `${r.fn};${r.fd};${r.fp}`)]);
-    $('dlReturns').onclick = () => {
-      const r = receipts[receipts.length - 1];
-      download('returns.csv', ['fn;fd;fm', ...(r ? [`${r.fn};${r.fd};${r.fp}`] : [])]);
-    };
-    $('reset').onclick = () => { receipts = []; persist(); updateCount(); $('receipt').classList.add('hidden'); $('savePng').classList.add('hidden'); };
-
-    updateCount();
-    if (receipts.length) renderReceipt(receipts[receipts.length - 1]);
-  </script>
+  <script src="shared/vendor/qrcode.js"></script>
+  <script src="test-receipt.js"></script>
 </body>
 </html>

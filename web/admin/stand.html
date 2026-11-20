@@ -5,13 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>QR для кассы</title>
   <link rel="icon" href="shared/img/caravan-truck.svg" type="image/svg+xml">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=Russo+One&family=Unbounded:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="shared/vendor/fonts.css">
   <link rel="stylesheet" href="shared/style.css">
 </head>
 <body class="poster-page">
-  <div class="topbar no-print"><h1><img src="shared/img/logo-white.svg" alt="Partner Neft">Админка</h1><nav class="admin-nav"><a href="./">Реестр</a><a href="draw.html">Розыгрыш</a><a href="stand.html" aria-current="page">QR для касс</a><a href="test-receipt.html">Тестовые чеки</a></nav></div>
+  <div class="topbar no-print"><h1><img src="shared/img/logo-white.svg" alt="Partner Neft">Админка</h1><nav class="admin-nav"><a href="./">Реестр</a><a href="draw.html">Розыгрыш</a><a href="stand.html" aria-current="page">QR для касс</a><a class="demo-only" href="test-receipt.html">Тестовые чеки</a></nav></div>
   <div class="print-bar no-print" style="margin-top:24px">
     <label for="stationNo">Номер АЗС для этого QR</label>
     <input id="stationNo" type="text" inputmode="numeric" maxlength="8" placeholder="например, 12">
@@ -47,31 +45,11 @@
   </main>
 
   <div class="print-bar no-print">
-    <button class="btn" onclick="print()">Распечатать</button>
+    <button class="btn" id="printBtn" type="button">Распечатать</button>
   </div>
 
   <script src="shared/config.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
-  <script>
-    const input = document.getElementById('stationNo');
-    input.value = new URLSearchParams(location.search).get('azs') || '';
-
-    // У каждой кассы свой QR: номер АЗС попадает в заявку и подсвечивается у кассира.
-    function draw() {
-      const no = input.value.trim();
-      const url = new URL(window.CLIENT_URL || new URL('/', location.href).href);
-      if (no) url.searchParams.set('azs', no);
-      const qr = qrcode(0, 'M');
-      qr.addData(url.href);
-      qr.make();
-      document.getElementById('qr').innerHTML = qr.createSvgTag({ cellSize: 7, margin: 0, scalable: false });
-      document.getElementById('url').textContent = url.href;
-      const name = document.getElementById('stationName');
-      name.textContent = 'АЗС №' + no;
-      name.classList.toggle('hidden', !no);
-    }
-    input.addEventListener('input', draw);
-    draw();
-  </script>
+  <script src="shared/vendor/qrcode.js"></script>
+  <script src="stand.js"></script>
 </body>
 </html>

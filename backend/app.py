@@ -305,7 +305,9 @@ def normalize_phone(raw: str) -> str | None:
         d = "996" + d[4:]
     if len(d) == 10 and d[0] == "0":
         d = d[1:]
-    if len(d) == 9:
+    # 9 цифр без «+» — местный номер без кода страны. С «+» это неполный номер «+996 XXX XXX»,
+    # приписав код, получили бы другой, но правдоподобный номер.
+    if len(d) == 9 and not raw.strip().startswith("+"):
         d = "996" + d
     return "+" + d if len(d) == 12 and d.startswith("996") else None
 

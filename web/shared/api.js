@@ -42,5 +42,5 @@ function staffLogout(token) {
   if (token) api('/api/auth/logout', { method: 'POST', token }).catch(() => {});
 }
 
-// Бесплатный сервер на Render засыпает: будим его, пока человек заполняет форму.
-api('/api/health').catch(() => {});
+// Элементы тестового стенда (класс demo-only) видны только при window.DEMO.
+document.documentElement.classList.toggle('demo', !!window.DEMO);
