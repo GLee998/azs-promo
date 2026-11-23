@@ -27,3 +27,12 @@ test('Golos Text и Unbounded покрывают Ң ң Ө ө Ү ү', () => {
     }
   }
 });
+
+test('подпись номера участника не набрана Russo One (в нём нет ң ө ү)', () => {
+  const css = fs.readFileSync(path.join(__dirname, 'style.css'), 'utf8');
+  const rule = css.match(/\.entry-number\s*\{([^}]*)\}/);
+  assert.ok(rule, 'нет правила .entry-number');
+  assert.ok(!rule[1].includes('--plate-font'), '.entry-number использует --plate-font');
+  assert.ok(!faces.some(f => f.includes("'Russo One'") && covers(f, 0x04AF)),
+    'Russo One получил ү: тогда правило можно вернуть, а тест обновить');
+});

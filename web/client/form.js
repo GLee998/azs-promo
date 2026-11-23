@@ -9,10 +9,34 @@ let pollTimer = null;
 
 function show(el, on = true) { el.classList.toggle('hidden', !on); }
 
+// Поле, к которому относится сообщение об ошибке: для экранного диктора и подсветки рамки.
+const ERR_FIELD = { phoneErr: 'phone', photoErr: 'photo', consentErr: 'consent' };
+
 function setError(id, text) {
   $(id).textContent = text || '';
   show($(id), !!text);
+  const field = ERR_FIELD[id] && $(ERR_FIELD[id]);
+  if (field) field.setAttribute('aria-invalid', text ? 'true' : 'false');
+  if (id === 'photoErr') $('uploadBox').classList.toggle('invalid', !!text);
 }
+
+// Число поездок приходит из настроек розыгрыша (/api/config), по умолчанию 8.
+let prizes = 8;
+function ruPlural(n, one, few, many) {
+  const m10 = n % 10, m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return one;
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
+  return many;
+}
+function renderPrizes() {
+  document.querySelectorAll('.prizes').forEach(el => { el.textContent = prizes; });
+  document.querySelectorAll('.prizes-word').forEach(el => {
+    el.textContent = prizes + ' ' + ruPlural(prizes, 'поездка', 'поездки', 'поездок');
+  });
+}
+api('/api/config').then(c => {
+  if (Number.isInteger(c.prizes) && c.prizes > 0) { prizes = c.prizes; renderPrizes(); }
+}).catch(() => {});
 
 // Номер телефона: normalizePhone и formatPhone из phone.js.
 const { normalizePhone, formatPhone } = window.Phone;
@@ -99,6 +123,11 @@ $('photo').addEventListener('change', async e => {
     state.fiscal = decodeQr(img);
     setQr(state.fiscal ? 'qrOk' : 'qrNo');
     race('update');
+    // Чек готов: следующий шаг — номер телефона.
+    if (!normalizePhone($('phone').value)) {
+      $('phoneField').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      $('phone').focus({ preventScroll: true });
+    }
   } catch {
     state.photo = null;
     setQr('fileBad');
@@ -113,6 +142,8 @@ $('phone').addEventListener('input', e => {
   // Не мешаем стирать: группируем цифры только при наборе.
   if (!e.inputType || !e.inputType.startsWith('delete')) $('phone').value = formatPhone($('phone').value);
   setError('phoneErr');
+  // Галочка: номер набран полностью и в верном формате.
+  show($('phoneOk'), !!normalizePhone($('phone').value));
 });
 
 $('form').addEventListener('submit', async e => {
@@ -123,7 +154,14 @@ $('form').addEventListener('submit', async e => {
   setError('photoErr', state.photo ? '' : t('photoErr'));
   setError('consentErr', consent ? '' : t('consentErr'));
   setError('submitErr');
-  if (!phone || !state.photo || !consent) return;
+  // Ошибки выше кнопки: ведём к первой, иначе кажется, что кнопка не сработала.
+  const firstBad = !state.photo ? 'photo' : !phone ? 'phone' : !consent ? 'consent' : null;
+  if (firstBad) {
+    const box = firstBad === 'photo' ? $('uploadBox') : $(firstBad);
+    box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    $(firstBad).focus({ preventScroll: true });
+    return;
+  }
 
   $('submit').disabled = true;
   $('submit').textContent = t('checking');
@@ -165,16 +203,17 @@ function forgetTicket() {
   try { localStorage.removeItem(TICKET_KEY); } catch {}
 }
 
-function openTicket(r) {
+function openTicket(r, scroll = true) {
   show($('formCard'), false);
   show($('ticket'));
   document.querySelectorAll('[data-code]').forEach(el => { el.textContent = r.code; });
-  renderStatus(r, false);
-  // К самой заявке, а не к полосе прогресса: иначе липкая полоса закрывает заголовок.
-  $('ticket').scrollIntoView({ behavior: 'smooth', block: 'start' });
   race('arrive');
   clearInterval(pollTimer);
-  pollTimer = setInterval(poll, 4000);
+  if (r.status === 'waiting') pollTimer = setInterval(poll, 4000);
+  renderStatus(r, false);
+  if (r.status === 'issued') race('finish', true);
+  // К самой заявке, а не к полосе прогресса: иначе липкая полоса закрывает заголовок.
+  if (scroll) $('ticket').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function renderStatus(r, celebrate) {
@@ -182,11 +221,13 @@ function renderStatus(r, celebrate) {
   show($('stWaiting'), r.status === 'waiting');
   show($('stIssued'), r.status === 'issued' || r.status === 'disqualified');
   show($('stCancelled'), r.status === 'cancelled');
-  if (r.entry) $('entryNumber').textContent = t('entry', { n: r.entry });
+  $('ticket').classList.toggle('is-waiting', r.status === 'waiting');
+  $('entryNum').textContent = r.entry || '';
   show($('entryNumber'), !!r.entry);
   if (r.status === 'cancelled') $('cancelReason').textContent = I18n.server(r.reason || '');
   if (r.status !== 'waiting') {
     clearInterval(pollTimer);
+    closeCashierView();
     if (r.status === 'issued' && celebrate) race('finish');
   }
 }
@@ -206,6 +247,7 @@ $('again').addEventListener('click', () => {
   Object.assign(state, { photo: null, fiscal: null, qr: null, ticket: null });
   show($('preview'), false);
   show($('qrStatus'), false);
+  show($('phoneOk'), false);
   show($('camIcon'));
   show($('uploadHint'));
   $('uploadBox').classList.remove('has-photo');
@@ -215,16 +257,51 @@ $('again').addEventListener('click', () => {
   race('reset');
 });
 
-// Если клиент случайно обновил страницу на кассе, показываем его заявку снова.
+// Клиент обновил страницу или вернулся позже: показываем его заявку снова, в любом статусе.
+// После выдачи здесь остаётся номер участника для розыгрыша. Заявку забываем, только если её нет на сервере;
+// при сбое сети токен сохраняем, заявка покажется при следующем открытии.
 (async () => {
   const token = loadTicket();
   if (!token) return;
   try {
     const r = await api('/api/registrations/status/' + encodeURIComponent(token));
-    if (r.status === 'waiting') openTicket(r);
-    else forgetTicket();
-  } catch { forgetTicket(); }
+    openTicket(r, r.status === 'waiting');
+  } catch (err) {
+    if (err.status === 404) forgetTicket();
+  }
 })();
+
+// ---------- режим «Показать кассиру»: код на весь экран, экран не гаснет ----------
+
+let wakeLock = null;
+
+async function keepScreenOn() {
+  try { wakeLock = await navigator.wakeLock?.request('screen'); } catch { wakeLock = null; }
+}
+
+function openCashierView() {
+  show($('cashierView'));
+  document.body.classList.add('no-scroll');
+  keepScreenOn();
+  $('cvClose').focus();
+}
+
+function closeCashierView() {
+  if ($('cashierView').classList.contains('hidden')) return;
+  show($('cashierView'), false);
+  document.body.classList.remove('no-scroll');
+  wakeLock?.release().catch(() => {});
+  wakeLock = null;
+  $('showCashier').focus({ preventScroll: true });
+}
+
+$('showCashier').addEventListener('click', openCashierView);
+$('cvClose').addEventListener('click', closeCashierView);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeCashierView(); });
+// Браузер снимает блокировку экрана, когда вкладку сворачивают: возвращаем её.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && !$('cashierView').classList.contains('hidden')) keepScreenOn();
+});
 
 // Смена языка: переводим всё, что form.js подставил сам. Ошибки проверки скрываем,
 // они появятся снова на нужном языке при следующей отправке.
@@ -234,12 +311,13 @@ function applyLang() {
   if (state.qr) setQr(state.qr);
   if (!$('submit').disabled) $('submit').textContent = t('submit');
   ['phoneErr', 'photoErr', 'consentErr', 'submitErr'].forEach(id => setError(id));
+  renderPrizes();
   if (state.ticket) renderStatus(state.ticket, false);
 }
 document.addEventListener('langchange', applyLang);
 applyLang();
 
 // Машинка на дороге-прогрессе (fx.js). Без анимаций форма работает так же.
-function race(action) {
-  if (typeof Race !== 'undefined') Race[action]();
+function race(action, arg) {
+  if (typeof Race !== 'undefined') Race[action](arg);
 }

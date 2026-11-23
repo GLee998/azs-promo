@@ -42,9 +42,10 @@ const Race = (() => {
   // Заявка принята: машинка стоит у кассы и ждёт выдачи.
   function arrive() { place(3, false); }
 
-  // Кассир отметил выдачу: финиш.
-  function finish() {
+  // Кассир отметил выдачу: финиш. quiet — заявку открыли заново после выдачи, без салюта.
+  function finish(quiet) {
     place(3, true);
+    if (quiet) return;
     if (window.confetti && !reduceMotion) {
       const colors = ['#008ED7', '#AE4A84', '#FFFFFF', '#F07DB8'];
       confetti({ particleCount: 120, spread: 75, origin: { y: .3 }, colors, disableForReducedMotion: true });

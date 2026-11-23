@@ -517,7 +517,7 @@ def health(db: Session = Depends(get_db)):
 
 @app.get("/api/config")
 def public_config():
-    return {"sms_required": SMS_REQUIRED, "demo_sms": DEMO_SMS}
+    return {"sms_required": SMS_REQUIRED, "demo_sms": DEMO_SMS, "prizes": DRAW_PRIZES}
 
 
 # ---------- клиент ----------

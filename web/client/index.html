@@ -66,8 +66,8 @@
         <div class="racer" id="racer"><img src="shared/img/caravan-truck.svg" alt=""></div>
       </div>
       <ol class="milestones" id="milestones">
-        <li><span class="dot">1</span><span data-i18n="msPhone">Телефон</span></li>
-        <li><span class="dot">2</span><span data-i18n="msReceipt">Чек</span></li>
+        <li><span class="dot">1</span><span data-i18n="msReceipt">Чек</span></li>
+        <li><span class="dot">2</span><span data-i18n="msPhone">Телефон</span></li>
         <li><span class="dot">3</span><span data-i18n="msConsent">Согласие</span></li>
         <li><span class="dot">✓</span><span data-i18n="msKassa">Касса</span></li>
       </ol>
@@ -75,34 +75,37 @@
 
     <section class="panel" id="formCard">
       <form id="form" novalidate>
+        <!-- Сначала чек: он уже в руке у клиента на кассе, затем номер телефона. -->
         <div class="field">
-          <div class="field-head"><span class="n">1</span><h3 data-i18n="phoneTitle">Номер телефона</h3></div>
-          <label for="phone" class="hint" data-i18n="phoneHint">Один номер телефона участвует в акции один раз.</label>
-          <input id="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+996 700 123 456" required>
-          <div class="error hidden" id="phoneErr" role="alert"></div>
-
-        </div>
-
-        <div class="field">
-          <div class="field-head"><span class="n">2</span><h3 data-i18n="photoTitle">Фото чека</h3></div>
+          <div class="field-head"><span class="n">1</span><h3 data-i18n="photoTitle">Фото чека</h3></div>
           <label class="upload" id="uploadBox">
             <img id="preview" class="hidden" alt="Фото чека" data-i18n-alt="photoAlt">
             <img class="cam" id="camIcon" src="shared/img/3d/camera_with_flash_3d.png" alt="" width="256" height="256">
             <b id="uploadText">Сфотографировать чек</b>
             <span class="hint" id="uploadHint" data-i18n="photoHint">Целиком, чтобы был виден QR-код внизу чека</span>
-            <input id="photo" type="file" accept="image/*" capture="environment">
+            <input id="photo" type="file" accept="image/*" capture="environment" aria-describedby="photoErr">
           </label>
           <div class="qr-status hidden" id="qrStatus" role="status"></div>
-          <div class="error hidden" id="photoErr" role="alert"></div>
+          <div class="error hidden" id="photoErr"></div>
+        </div>
+
+        <div class="field" id="phoneField">
+          <div class="field-head"><span class="n">2</span><h3 data-i18n="phoneTitle">Номер телефона</h3></div>
+          <label for="phone" class="hint" data-i18n="phoneHint">Один номер телефона участвует в акции один раз.</label>
+          <div class="phone-wrap">
+            <input id="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+996 700 123 456" required aria-describedby="phoneErr">
+            <span class="phone-ok hidden" id="phoneOk" aria-hidden="true">✓</span>
+          </div>
+          <div class="error hidden" id="phoneErr"></div>
         </div>
 
         <div class="field">
           <div class="field-head"><span class="n">3</span><h3 data-i18n="consentTitle">Согласие</h3></div>
           <label class="consent">
-            <input id="consent" type="checkbox">
+            <input id="consent" type="checkbox" aria-describedby="consentErr">
             <span data-i18n-html="consent">Принимаю <a href="rules.html" target="_blank">правила акции</a> и даю согласие на обработку персональных данных в соответствии с <a href="privacy.html" target="_blank">политикой обработки персональных данных</a>.</span>
           </label>
-          <div class="error hidden" id="consentErr" role="alert"></div>
+          <div class="error hidden" id="consentErr"></div>
         </div>
 
         <button class="btn" id="submit" type="submit" data-i18n="cta">Зарегистрировать чек</button>
@@ -114,20 +117,22 @@
       <span class="finish-car"><img src="shared/img/toy-caravan.webp" alt="" width="720" height="391"></span>
 
       <div id="stWaiting">
-        <h2 data-i18n="wTitle">Чек принят</h2>
-        <p data-i18n="wText">Номер и чек проверены. Покажите этот экран кассиру, чтобы получить игрушечный караван.</p>
-        <div class="plate" data-i18n-aria="plate" aria-label="Код заявки">
+        <h2 data-i18n="wTitle">Заявка принята</h2>
+        <p data-i18n="wText">Покажите этот экран кассиру: он сверит чек и выдаст игрушечный караван.</p>
+        <div class="code-label" data-i18n="codeLabel">Код заявки</div>
+        <div class="plate xl" data-i18n-aria="plate" aria-label="Код заявки">
           <span class="region">01</span>
           <span class="num" data-code></span>
           <span class="reg"><i></i><span>KG</span></span>
         </div>
+        <button class="btn show-btn" id="showCashier" type="button" data-i18n="showCashier">Показать кассиру</button>
         <div><span class="waiting-line"><span class="pulse"></span><span data-i18n="wWait">Ждём, когда кассир отметит выдачу</span></span></div>
       </div>
 
       <div id="stIssued" class="hidden">
         <h2 data-i18n="iTitle">Игрушечный караван ваш!</h2>
-        <p data-i18n="iText">Вы участвуете в розыгрыше 8 поездок на новогоднем караване. Сохраните номер участника.</p>
-        <span class="entry-number" id="entryNumber"></span>
+        <p data-i18n-html="iText">Вы участвуете в розыгрыше: <span class="prizes-word">8 поездок</span> на новогоднем караване. Сохраните номер участника: он останется на этой странице.</p>
+        <span class="entry-number hidden" id="entryNumber"><span data-i18n="entryLabel">Номер участника</span> <b id="entryNum"></b></span>
       </div>
 
       <div id="stCancelled" class="hidden">
@@ -139,12 +144,26 @@
 
     </div>
 
+    <!-- Экран для кассира: только код заявки, крупно и контрастно. Экран телефона при этом не гаснет. -->
+    <div class="cashier-view hidden" id="cashierView" role="dialog" aria-modal="true" aria-labelledby="cvTitle">
+      <div class="cv-inner">
+        <p class="cv-title" id="cvTitle" data-i18n="cvTitle">Код заявки для кассира</p>
+        <div class="plate xxl">
+          <span class="region">01</span>
+          <span class="num" data-code></span>
+          <span class="reg"><i></i><span>KG</span></span>
+        </div>
+        <p class="cv-hint" data-i18n="cvHint">Кассир найдёт заявку по этому коду и сверит чек.</p>
+        <button class="btn secondary" id="cvClose" type="button" data-i18n="cvClose">Закрыть</button>
+      </div>
+    </div>
+
     <h2 class="section-title" data-i18n="howTitle">Как участвовать в акции «Караван Coca‑Cola»</h2>
     <ol class="how">
       <li><div><b data-i18n="how1b">Купите комбо</b><span data-i18n="how1">Комбо «Караван Coca‑Cola»: 2 френч-дога и 2 бутылки Coca‑Cola 0,5 л.</span></div><img class="how-ico" src="shared/img/french-dog.webp" alt="" width="480" height="451" loading="lazy"></li>
       <li><div><b data-i18n="how2b">Зарегистрируйте чек</b><span data-i18n="how2">Отсканируйте QR-код на кассе и зарегистрируйте чек по номеру телефона. Один чек можно зарегистрировать только один раз.</span></div><img class="how-ico" src="shared/img/3d/receipt_3d.png" alt="" width="256" height="256" loading="lazy"></li>
       <li><div><b data-i18n="how3b">Получите игрушечный караван Coca‑Cola</b><span data-i18n="how3">Игрушечный караван выдаётся один раз за всю акцию на один номер телефона.</span></div><img class="how-ico wide" src="shared/img/toy-caravan.webp" alt="" width="256" height="256" loading="lazy"></li>
-      <li><div><b data-i18n="how4b">Участвуйте в розыгрыше</b><span data-i18n="how4">Один номер телефона даёт один шанс выиграть поездку на новогоднем караване. Всего разыгрывается 8 поездок, по одной на каждого победителя.</span></div><img class="how-ico" src="shared/img/3d/wrapped_gift_3d.png" alt="" width="256" height="256" loading="lazy"></li>
+      <li><div><b data-i18n="how4b">Участвуйте в розыгрыше</b><span data-i18n-html="how4">Один номер телефона даёт один шанс выиграть поездку на новогоднем караване. Всего разыгрывается: <span class="prizes-word">8 поездок</span>, по одной на каждого победителя.</span></div><img class="how-ico" src="shared/img/3d/wrapped_gift_3d.png" alt="" width="256" height="256" loading="lazy"></li>
     </ol>
   </main>
 

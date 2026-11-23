@@ -477,6 +477,11 @@ def test_health_checks_db():
     assert client.get("/api/health").json() == {"ok": True}
 
 
+def test_public_config_has_prizes():
+    """Число поездок в текстах формы берётся из настройки розыгрыша, а не вписано в разметку."""
+    assert client.get("/api/config").json()["prizes"] == backend.DRAW_PRIZES
+
+
 def test_large_png_memory_bounded():
     """PNG в 150 КБ с картинкой 50 Мпикс не съедает сотни мегабайт памяти: отказ или экономная обработка (C2)."""
     import subprocess, sys, tempfile
@@ -605,6 +610,7 @@ if __name__ == "__main__":
     test_manage_cli()
     test_phone_normalization()
     test_health_checks_db()
+    test_public_config_has_prizes()
     test_large_png_memory_bounded()
     test_odd_image_files_return_400()
     test_successful_logins_not_limited()

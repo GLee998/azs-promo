@@ -301,12 +301,34 @@ input::placeholder { color: #8BA3B6; }
 .ticket h2 { font-size: clamp(30px, 8vw, 40px); margin: 6px 0 8px; line-height: 1.05; }
 .ticket p { margin: 0 auto; max-width: 26em; }
 .ticket .finish-car { width: 240px; margin: 0 auto; display: block; }
-.ticket .finish-car img { width: 100%; filter: drop-shadow(0 14px 14px rgba(0,58,112,.3)); }
+.ticket .finish-car img { width: 100%; height: auto; filter: drop-shadow(0 14px 14px rgba(0,58,112,.3)); }
 .ticket .show-cashier { margin: 18px auto 0; padding: 12px 16px; max-width: 26em; border-radius: var(--r-md); background: var(--night); color: var(--white); font-weight: 600; }
 .waiting-line { display: inline-flex; gap: 10px; align-items: center; margin-top: 14px; color: var(--muted); font-size: 15px; }
 .pulse { width: 10px; height: 10px; border-radius: 50%; background: var(--pink); animation: pulse 1.2s ease-in-out infinite; }
 @keyframes pulse { 50% { transform: scale(1.6); opacity: .4; } }
-.entry-number { display: inline-block; margin-top: 14px; padding: 8px 16px; border-radius: 99px; background: var(--pink-soft); color: var(--pink-deep); font: 400 22px/1.2 var(--plate-font); }
+.entry-number { display: inline-block; margin-top: 14px; padding: 8px 16px; border-radius: 99px; background: var(--pink-soft); color: var(--pink-deep); font: 600 18px/1.2 var(--body); }
+/* Russo One — только для цифр: кыргызских букв ң ө ү в этом шрифте нет. */
+.entry-number b { font: 400 24px/1.2 var(--plate-font); margin-left: 4px; white-space: nowrap; }
+
+/* Ожидание выдачи: главное на экране — код заявки, картинка игрушки уменьшается. */
+.ticket.is-waiting .finish-car { width: 150px; }
+.code-label { margin-top: 18px; color: var(--muted); font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; }
+.ticket .show-btn { max-width: 22em; margin: 16px auto 0; }
+
+/* Полноэкранный код для кассира: белый фон и максимальный контраст против бликов. */
+.cashier-view { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 24px 16px; background: var(--white); text-align: center; }
+.cashier-view .cv-inner { width: 100%; max-width: 640px; }
+.cv-title { margin: 0; font: 600 18px/1.3 var(--display); color: var(--ink); }
+.cv-hint { margin: 18px auto 28px; max-width: 24em; color: var(--muted); }
+.cashier-view .btn { max-width: 16em; margin: 0 auto; }
+body.no-scroll { overflow: hidden; }
+
+/* Телефон: галочка, когда номер набран полностью. Поле с ошибкой — красная рамка. */
+.phone-wrap { position: relative; }
+.phone-ok { position: absolute; right: 14px; top: 50%; transform: translateY(-50%); width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--ok); color: var(--white); font-weight: 700; font-size: 16px; pointer-events: none; }
+.phone-wrap input { padding-right: 52px; }
+input[aria-invalid=true] { border-color: var(--bad); }
+.upload.invalid { border-color: var(--bad); }
 
 /* номерной знак (Кыргызстан) */
 .plate {
@@ -314,7 +336,7 @@ input::placeholder { color: #8BA3B6; }
   border: 3px solid var(--ink); border-radius: 8px; background: var(--white); overflow: hidden;
   font-family: var(--plate-font); color: var(--ink); box-shadow: 0 6px 0 rgba(0,0,0,.08);
 }
-.plate .num { padding: 6px 14px; font-size: 30px; letter-spacing: .06em; line-height: 1.1; }
+.plate .num { white-space: nowrap; padding: 6px 14px; font-size: 30px; letter-spacing: .06em; line-height: 1.1; }
 .plate .region { display: flex; align-items: center; padding: 6px 10px; border-right: 3px solid var(--ink); font-size: 26px; }
 .plate .reg {
   display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 2px;
@@ -332,6 +354,16 @@ input::placeholder { color: #8BA3B6; }
 .plate.sm .reg i { width: 16px; height: 10px; background-size: 9px 9px; }
 .plate.md .num { font-size: 22px; padding: 4px 10px; }
 .plate.md .reg { padding: 3px 6px; font-size: 9px; }
+/* Код заявки на экране клиента: кассир читает его с расстояния вытянутой руки. */
+.plate.xl .num { font-size: clamp(34px, 10vw, 54px); padding: 6px 14px; }
+.plate.xl .region { font-size: clamp(30px, 9vw, 40px); }
+.plate.xl .reg { font-size: 13px; padding: 4px 10px; }
+.plate.xl .reg i { width: 30px; height: 19px; }
+.plate.xxl { margin: 20px 0 0; border-width: 4px; max-width: 100%; }
+.plate.xxl .num { font-size: clamp(36px, 11vw, 96px); padding: 8px 14px; }
+.plate.xxl .region { font-size: clamp(28px, 8vw, 64px); border-right-width: 4px; padding: 8px 10px; }
+.plate.xxl .reg { font-size: 15px; border-left-width: 4px; padding: 6px 12px; }
+.plate.xxl .reg i { width: 36px; height: 23px; }
 
 /* как участвовать: последовательные шаги */
 .how { counter-reset: how; display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
