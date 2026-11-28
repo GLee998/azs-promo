@@ -562,6 +562,10 @@ input[aria-invalid=true] { border-color: var(--bad); }
 .doc ol > li { counter-increment: item; position: relative; }
 .doc ol > li::before { content: counter(sec) "." counter(item) "."; position: absolute; left: -40px; font-weight: 600; }
 .doc li { margin: 6px 0; line-height: 1.5; }
+.doc-table { width: 100%; border-collapse: collapse; margin: 10px 0 14px; font-size: 14px; }
+.doc-table th, .doc-table td { border: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
+.doc-table th { font-weight: 600; }
+.doc .doc-sign { margin-top: 28px; font-weight: 600; }
 .doc mark { background: #FFF1B8; color: inherit; padding: 0 3px; border-radius: 4px; }
 
 /* ---------- розыгрыш ---------- */
