@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
-  <title>Касса: выдача машинок</title>
+  <title>Касса: подтверждение чеков</title>
   <link rel="icon" href="shared/img/caravan-truck.svg" type="image/svg+xml">
   <link rel="stylesheet" href="shared/vendor/fonts.css">
   <link rel="stylesheet" href="shared/style.css">
@@ -37,12 +37,13 @@
         <input type="search" id="q" placeholder="например, 123 ABC" autocomplete="off" autocapitalize="characters" spellcheck="false">
       </label>
     </div>
-    <p class="hint" style="margin-top:0">Клиент показывает экран с кодом заявки. Найдите эту заявку, сверьте чек и выдайте машинку. Список обновляется сам.</p>
+    <p class="hint" style="margin-top:0">Клиент показывает экран с кодом заявки. Найдите эту заявку, сверьте чек и подтвердите его. Сувенир выдавайте, только если на карточке написано «Выдать сувенир»: он положен один раз на номер. Список обновляется сам.</p>
+    <p class="souvenir-left hidden" id="souvenirsLeft"></p>
 
-    <h2 class="section-title" style="margin-top:20px">Ждут выдачи</h2>
+    <h2 class="section-title" style="margin-top:20px">Ждут подтверждения</h2>
     <div id="queue"></div>
 
-    <h2 class="section-title">Недавно выдано</h2>
+    <h2 class="section-title">Недавно подтверждено</h2>
     <div class="card" id="recent"></div>
   </main>
 

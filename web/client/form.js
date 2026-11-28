@@ -1,4 +1,5 @@
-// Мобильная форма регистрации чека: клиент заполняет её на кассе до выдачи машинки.
+// Мобильная форма регистрации чека: клиент заполняет её на кассе, кассир подтверждает чек.
+// Каждый подтверждённый чек — купон в розыгрыше, сувенир выдаётся один раз на номер.
 
 const $ = id => document.getElementById(id);
 const state = { photo: null, fiscal: null, qr: null, ticket: null };
@@ -36,6 +37,8 @@ function renderPrizes() {
 }
 api('/api/config').then(c => {
   if (Number.isInteger(c.prizes) && c.prizes > 0) { prizes = c.prizes; renderPrizes(); }
+  // Сувениры закончились: предупреждаем до регистрации, что участие в розыгрыше продолжается.
+  show($('soldOut'), c.souvenirs_left === 0);
 }).catch(() => {});
 
 // Номер телефона: normalizePhone и formatPhone из phone.js.
@@ -224,6 +227,11 @@ function renderStatus(r, celebrate) {
   $('ticket').classList.toggle('is-waiting', r.status === 'waiting');
   $('entryNum').textContent = r.entry || '';
   show($('entryNumber'), !!r.entry);
+  // Сувенир: при ожидании — положен ли он по этому чеку, после подтверждения — выдан ли.
+  show($('wSouvenirYes'), r.souvenir_due !== false);
+  show($('wSouvenirNo'), r.souvenir_due === false);
+  show($('iTitleSouvenir'), !!r.souvenir);
+  show($('iTitleCoupon'), !r.souvenir);
   if (r.status === 'cancelled') $('cancelReason').textContent = I18n.server(r.reason || '');
   if (r.status !== 'waiting') {
     clearInterval(pollTimer);
@@ -241,7 +249,7 @@ async function poll() {
   } catch {}
 }
 
-$('again').addEventListener('click', () => {
+function newReceipt() {
   forgetTicket();
   $('form').reset();
   Object.assign(state, { photo: null, fiscal: null, qr: null, ticket: null });
@@ -255,6 +263,15 @@ $('again').addEventListener('click', () => {
   show($('ticket'), false);
   show($('formCard'));
   race('reset');
+}
+
+$('again').addEventListener('click', newReceipt);
+// Ещё один чек тем же номером: номер оставляем в поле, чтобы не набирать заново.
+$('another').addEventListener('click', () => {
+  const phone = $('phone').value || (state.ticket && state.ticket.phone) || '';
+  newReceipt();
+  if (phone) { $('phone').value = phone; show($('phoneOk'), !!normalizePhone(phone)); }
+  $('formCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
 
 // Клиент обновил страницу или вернулся позже: показываем его заявку снова, в любом статусе.

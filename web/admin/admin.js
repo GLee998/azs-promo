@@ -14,8 +14,8 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 const STATUS = {
-  waiting: 'Ждёт выдачи',
-  issued: 'Машинка выдана',
+  waiting: 'Ждёт кассы',
+  issued: 'Чек подтверждён',
   cancelled: 'Отменена',
   disqualified: 'Снята с розыгрыша',
 };
@@ -98,11 +98,12 @@ async function loadStats() {
 function renderStats(s) {
   const tiles = [
     [s.total, 'всего регистраций'],
-    [s.waiting, 'ждут выдачи'],
-    [s.unchecked, 'выдано, покупка не сверена'],
+    [s.waiting, 'ждут кассы'],
+    [s.unchecked, 'подтверждено, покупка не сверена'],
     [s.cancelled, 'отменено'],
     [s.disqualified, 'снято с розыгрыша'],
-    [s.issued, 'участников розыгрыша'],
+    [`${s.souvenirs} / ${s.souvenirs_total}`, 'сувениров выдано'],
+    [s.issued, 'купонов в розыгрыше'],
   ];
   $('stats').innerHTML = tiles.map(([n, t], i) =>
     `<div class="stat${i === tiles.length - 1 ? ' accent' : ''}"><b>${n}</b><span>${t}</span></div>`).join('');
@@ -132,9 +133,10 @@ function card(a) {
     <div>
       <h3>${plate(a.code)} <span class="tag ${a.status}">${STATUS[a.status]}</span>
         ${a.entry ? `<span class="tag pink">${esc(a.entry)}</span>` : ''}
+        ${a.souvenir ? '<span class="tag issued">Сувенир</span>' : ''}
         ${a.returned ? '<span class="tag disqualified">Возврат</span>' : ''}</h3>
       <div class="meta"><span>${date}</span><span>${esc(a.phone)}</span>${a.station ? `<span>QR АЗС №${esc(a.station)}</span>` : ''}${a.receipt_sum ? `<span>${esc(a.receipt_sum)} сом</span>` : ''}</div>
-      ${issued ? `<div class="meta">Выдано ${issued}${a.issued_station ? ` на АЗС №${esc(a.issued_station)}` : ''}</div>` : ''}
+      ${issued ? `<div class="meta">Подтверждён ${issued}${a.issued_station ? ` на АЗС №${esc(a.issued_station)}` : ''}</div>` : ''}
       ${a.reason ? `<div class="meta">Причина: ${esc(a.reason)}</div>` : ''}
       <div class="fiscal-read">${a.fn ? `Чек: ФН ${esc(a.fn)}, ФД ${esc(a.fd)}, ФМ ${esc(a.fm)}${src ? ` (${src})` : ''}` : 'Реквизиты чека ещё не введены'}</div>
 

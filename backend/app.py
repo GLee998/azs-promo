@@ -26,6 +26,7 @@ from PIL import Image, ImageOps
 from pydantic import BaseModel
 from sqlalchemy import (Boolean, DateTime, ForeignKey, Index, LargeBinary, String, Text,
                         create_engine, delete, func, or_, select, text, update)
+from sqlalchemy import false as sa_false
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -76,7 +77,7 @@ SMS_RESEND = timedelta(seconds=30)
 SMS_MAX_ATTEMPTS = 5
 # Заявка, по которой машинку так и не выдали, перестаёт держать номер и чек.
 WAITING_TTL = timedelta(hours=int(os.getenv("WAITING_TTL_HOURS", "3")))
-EXPIRED_REASON = "Игрушку не забрали вовремя"
+EXPIRED_REASON = "Чек не подтвердили на кассе вовремя. Его можно зарегистрировать заново."
 # Лимиты частоты. С одного IP мобильного оператора выходят многие клиенты (CGNAT), поэтому лимит
 # по IP мягкий, а строгий — по номеру телефона и на вход сотрудников.
 RL_REG_IP = int(os.getenv("RL_REG_IP", "60"))
@@ -87,6 +88,8 @@ RL_LOGIN_IP = int(os.getenv("RL_LOGIN_IP", "10"))
 LOGIN_WINDOW = timedelta(minutes=15)
 TOO_MANY_ATTEMPTS = "Слишком много попыток. Попробуйте через несколько минут."
 DRAW_PRIZES = int(os.getenv("DRAW_PRIZES", "8"))  # 8 поездок на новогоднем караване
+DRAW_RESERVES = int(os.getenv("DRAW_RESERVES", "3"))  # запасные победители (п. 10.3 условий)
+SOUVENIRS = int(os.getenv("SOUVENIRS", "1500"))  # запас сувениров на всю акцию (п. 5.4 условий)
 # Сброс розыгрыша нужен только на тестовом стенде, в проде он выключен.
 DRAW_RESET_ALLOWED = os.getenv("DRAW_RESET_ALLOWED", "false").lower() == "true"
 # Локально сервер отдаёт и три сайта (клиент, касса, админка). В проде они живут на отдельных адресах.
@@ -119,13 +122,16 @@ class Registration(Base):
     """Регистрация чека.
 
     Статусы:
-      waiting      — проверки пройдены, ждёт выдачи машинки на кассе;
-      issued       — машинка выдана, номер телефона участвует в розыгрыше;
-      cancelled    — отменена до выдачи (кассиром или по сроку), номер и чек свободны;
-      disqualified — снята маркетингом после выдачи (например, возврат), номер остаётся занятым.
+      waiting      — проверки пройдены, ждёт подтверждения на кассе;
+      issued       — кассир подтвердил чек: у чека есть купон на розыгрыш, сувенир выдан или нет (souvenir);
+      cancelled    — отменена до подтверждения (кассиром или по сроку), чек свободен;
+      disqualified — снята маркетингом после подтверждения (например, возврат), чек остаётся занятым.
 
-    phone_lock и receipt_lock заполнены, пока заявка действует. Уникальные индексы по ним
-    не дают зарегистрировать тот же номер или чек дважды, в том числе одновременно на двух АЗС.
+    По условиям розыгрыша один номер телефона может зарегистрировать несколько чеков: каждый чек даёт
+    купон, а сувенир выдаётся один раз на номер. receipt_lock заполнен, пока заявка действует, и
+    уникальный индекс не даёт зарегистрировать чек дважды, в том числе одновременно на двух АЗС.
+    souvenir_phone заполняется при выдаче сувенира: уникальный индекс не даёт выдать второй на тот же номер.
+    phone_lock больше не используется (раньше номер участвовал один раз).
     """
     __tablename__ = "registrations"
     __table_args__ = (
@@ -162,6 +168,8 @@ class Registration(Base):
     status_reason: Mapped[str | None] = mapped_column(Text)
     check_purchase: Mapped[bool] = mapped_column(Boolean, default=False)
     returned: Mapped[bool] = mapped_column(Boolean, default=False)
+    souvenir: Mapped[bool] = mapped_column(Boolean, default=False, server_default=sa_false())
+    souvenir_phone: Mapped[str | None] = mapped_column(String(16), unique=True)
 
     photo: Mapped["RegistrationPhoto"] = relationship(back_populates="registration", cascade="all, delete-orphan")
     entry: Mapped["Entry | None"] = relationship(back_populates="registration", cascade="all, delete-orphan")
@@ -195,7 +203,7 @@ class RegistrationPhoto(Base):
 
 
 class Entry(Base):
-    """Заявка на розыгрыш: одна на номер телефона, появляется после выдачи машинки."""
+    """Купон на розыгрыш: один на подтверждённый кассой чек."""
     __tablename__ = "entries"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -516,8 +524,10 @@ def health(db: Session = Depends(get_db)):
 
 
 @app.get("/api/config")
-def public_config():
-    return {"sms_required": SMS_REQUIRED, "demo_sms": DEMO_SMS, "prizes": DRAW_PRIZES}
+def public_config(db: Session = Depends(get_db)):
+    # souvenirs_left: форма показывает, что сувениры закончились, но участие в розыгрыше продолжается.
+    return {"sms_required": SMS_REQUIRED, "demo_sms": DEMO_SMS, "prizes": DRAW_PRIZES,
+            "souvenirs_left": souvenirs_left(db)}
 
 
 # ---------- клиент ----------
@@ -566,13 +576,6 @@ def verify_sms(db: Session, phone: str, code: str) -> None:
     db.delete(row)
 
 
-def phone_taken_message(r: Registration) -> str:
-    if r.status == "waiting":
-        return (f"Этот номер уже зарегистрирован, заявка {r.code} ждёт выдачи игрушки. "
-                "Покажите её кассиру.")
-    return "Этот номер уже получил игрушечный караван. По условиям акции игрушка выдаётся один раз на номер."
-
-
 def release_all_expired(db: Session) -> int:
     """Одним запросом освобождаем номер и чек у всех заявок, по которым игрушку не выдали за WAITING_TTL.
 
@@ -587,25 +590,43 @@ def release_all_expired(db: Session) -> int:
     return result.rowcount
 
 
-def release_expired(db: Session, phone: str, fiscal_key: str | None) -> None:
-    """Освобождаем номер и чек, если их держит заявка, по которой машинку так и не выдали."""
-    conds = [Registration.phone_lock == phone]
-    if fiscal_key:
-        conds.append(Registration.receipt_lock == fiscal_key)
-    for r in db.scalars(select(Registration).where(Registration.status == "waiting")
-                        .where(conds[0] if len(conds) == 1 else (conds[0] | conds[1]))):
+def release_expired(db: Session, fiscal_key: str | None) -> None:
+    """Освобождаем чек, если его держит заявка, которую так и не подтвердили на кассе."""
+    if not fiscal_key:
+        return
+    for r in db.scalars(select(Registration).where(Registration.status == "waiting",
+                                                   Registration.receipt_lock == fiscal_key)):
         if r.expired():
             r.release("cancelled", EXPIRED_REASON)
     db.flush()
 
 
-def conflict_message(db: Session, phone: str, fiscal_key: str | None) -> str:
-    taken = db.scalar(select(Registration).where(Registration.phone_lock == phone))
-    if taken:
-        return phone_taken_message(taken)
+RECEIPT_TAKEN = "Этот чек уже зарегистрирован. Один чек можно зарегистрировать только один раз."
+
+
+def conflict_message(db: Session, fiscal_key: str | None) -> str:
     if fiscal_key and db.scalar(select(Registration.id).where(Registration.receipt_lock == fiscal_key)):
-        return "Этот чек уже зарегистрирован. Один чек можно зарегистрировать только один раз."
+        return RECEIPT_TAKEN
     return "Не удалось зарегистрировать чек. Попробуйте ещё раз."
+
+
+def souvenirs_given(db: Session) -> int:
+    return db.scalar(select(func.count()).select_from(Registration).where(Registration.souvenir.is_(True)))
+
+
+def souvenirs_left(db: Session) -> int:
+    return max(0, SOUVENIRS - souvenirs_given(db))
+
+
+def phones_with_souvenir(db: Session, phones: set[str]) -> set[str]:
+    if not phones:
+        return set()
+    return set(db.scalars(select(Registration.souvenir_phone).where(Registration.souvenir_phone.in_(phones))))
+
+
+def souvenir_due(db: Session, phone: str) -> bool:
+    """Положен ли сувенир при подтверждении чека: номер его ещё не получал и запас не исчерпан."""
+    return not phones_with_souvenir(db, {phone}) and souvenirs_left(db) > 0
 
 
 # Обработчики с базой и Pillow объявлены через def, а не async def: FastAPI выполняет их в пуле потоков.
@@ -645,7 +666,6 @@ def create_registration(
         token=secrets.token_urlsafe(24),
         station=clean_station(station),
         phone=phone_n,
-        phone_lock=phone_n,
         phone_verified=SMS_REQUIRED,
         consent_at=now(),
         receipt_sum=receipt_sum[:16] or None,
@@ -655,17 +675,18 @@ def create_registration(
     r.set_fiscal(fn, fd, fm, "qr")
     r.photo = RegistrationPhoto(data=photo_full, thumb=photo_thumb)
 
-    release_expired(db, phone_n, r.fiscal_key)
+    release_expired(db, r.fiscal_key)
     if SMS_REQUIRED:
         verify_sms(db, phone_n, sms_code)
     db.add(r)
     try:
         db.commit()
     except IntegrityError:
-        # Уникальные индексы сработали: номер или чек уже заняты (возможно, секунду назад на другой АЗС).
+        # Уникальный индекс сработал: чек уже занят (возможно, секунду назад на другой АЗС).
         db.rollback()
-        raise HTTPException(409, conflict_message(db, phone_n, r.fiscal_key))
-    return {"code": r.code, "token": r.token, "status": r.status}
+        raise HTTPException(409, conflict_message(db, r.fiscal_key))
+    return {"code": r.code, "token": r.token, "status": r.status, "entry": None,
+            "souvenir": False, "souvenir_due": souvenir_due(db, phone_n)}
 
 
 @app.get("/api/registrations/status/{token}")
@@ -677,12 +698,14 @@ def registration_status(token: str, db: Session = Depends(get_db)):
         r.release("cancelled", EXPIRED_REASON)
         db.commit()
     return {"code": r.code, "status": r.status, "reason": r.status_reason,
-            "entry": r.entry.number if r.entry else None}
+            "entry": r.entry.number if r.entry else None, "souvenir": r.souvenir,
+            "souvenir_due": souvenir_due(db, r.phone) if r.status == "waiting" else None}
 
 
 # ---------- касса ----------
 
-def cashier_view(r: Registration) -> dict:
+def cashier_view(r: Registration, due: bool | None = None) -> dict:
+    """due — положен ли сувенир при подтверждении (для заявок, ждущих кассы)."""
     return {
         "id": r.id,
         "code": r.code,
@@ -696,6 +719,8 @@ def cashier_view(r: Registration) -> dict:
         "reason": r.status_reason,
         "issued_station": r.issued_station,
         "entry": r.entry.number if r.entry else None,
+        "souvenir": r.souvenir,
+        "souvenir_due": due,
     }
 
 
@@ -773,8 +798,13 @@ def cashier_queue(station: str = "", q: str = "", user: StaffUser = Depends(requ
               .where(Registration.status == "issued").order_by(Registration.issued_at.desc()).limit(10))
     if station:
         recent = recent.where(Registration.issued_station == station)
-    return {"waiting": [cashier_view(r) for r in db.scalars(waiting)],
-            "recent": [cashier_view(r) for r in db.scalars(recent)]}
+    waiting = list(db.scalars(waiting))
+    # Кому положен сувенир: одним запросом по всем номерам очереди, а не по запросу на заявку.
+    got = phones_with_souvenir(db, {r.phone for r in waiting})
+    left = souvenirs_left(db)
+    return {"waiting": [cashier_view(r, r.phone not in got and left > 0) for r in waiting],
+            "recent": [cashier_view(r) for r in db.scalars(recent)],
+            "souvenirs_left": left}
 
 
 PhotoSize = Literal["full", "thumb"]
@@ -800,12 +830,13 @@ def cashier_photo(reg_id: int, size: PhotoSize = "full", db: Session = Depends(g
 
 class IssueBody(BaseModel):
     station: str = ""
+    souvenir: bool = True  # кассир снимает, если сувениров на его АЗС уже нет
     fn: str | None = None
     fd: str | None = None
     fm: str | None = None
 
 
-NOT_WAITING = "Заявка уже не ждёт выдачи. Обновите список."
+NOT_WAITING = "Заявка уже не ждёт подтверждения. Обновите список."
 
 
 @app.post("/api/cashier/registrations/{reg_id}/issue")
@@ -814,28 +845,37 @@ def cashier_issue(reg_id: int, body: IssueBody, user: StaffUser = Depends(requir
     r = get_reg(db, reg_id)
     if r.status != "waiting" or r.expired():
         raise HTTPException(400, NOT_WAITING)
+    # До set_fiscal: запрос к базе после него сбросил бы реквизиты в базу раньше try ниже.
+    give = body.souvenir and souvenir_due(db, r.phone)
     if not r.fiscal_key:
         r.set_fiscal(body.fn, body.fd, body.fm, "cashier")
         if not r.fiscal_key:
             raise HTTPException(400, "Введите ФН, ФД и ФМ с бумажного чека")
     station = user.station or clean_station(body.station) or r.station
     try:
-        # Статус меняем условным UPDATE: если два кассира нажали «выдано» одновременно,
+        # Статус меняем условным UPDATE: если два кассира нажали «подтвердить» одновременно,
         # заявку получит только первый, второй увидит 0 изменённых строк.
         claimed = db.execute(
             update(Registration).where(Registration.id == r.id, Registration.status == "waiting")
-            .values(status="issued", issued_at=now(), issued_station=station)
+            .values(status="issued", issued_at=now(), issued_station=station,
+                    souvenir=give, souvenir_phone=r.phone if give else None)
             .execution_options(synchronize_session=False)).rowcount
         if not claimed:
             db.rollback()
             raise HTTPException(400, NOT_WAITING)
         r.status, r.issued_at, r.issued_station = "issued", now(), station
+        r.souvenir, r.souvenir_phone = give, (r.phone if give else None)
         r.entry = Entry()
-        audit(db, user, "issue", r.id, f"АЗС {station}" if station else None)
+        details = ", ".join(x for x in (f"АЗС {station}" if station else "", "сувенир" if give else "") if x)
+        audit(db, user, "issue", r.id, details or None)
         db.commit()
     except IntegrityError:
         db.rollback()
-        raise HTTPException(409, "Этот чек уже зарегистрирован другой заявкой. Машинку не выдавайте.")
+        if give and phones_with_souvenir(db, {r.phone}):
+            # Второй чек того же номера подтвердили на другой кассе секундой раньше.
+            raise HTTPException(409, "На этот номер сувенир только что выдан. Нажмите «Подтвердить» ещё раз: "
+                                     "чек будет подтверждён без сувенира.")
+        raise HTTPException(409, "Этот чек уже зарегистрирован другой заявкой. Сувенир не выдавайте.")
     return cashier_view(r)
 
 
@@ -848,7 +888,7 @@ def cashier_cancel(reg_id: int, body: ReasonBody, user: StaffUser = Depends(requ
                    db: Session = Depends(get_db)):
     r = get_reg(db, reg_id)
     if r.status != "waiting":
-        raise HTTPException(400, "Отменить можно только заявку, которая ждёт выдачи")
+        raise HTTPException(400, "Отменить можно только заявку, которая ждёт подтверждения")
     r.release("cancelled", body.reason.strip() or "Отменена на кассе")
     audit(db, user, "cancel", r.id, r.status_reason)
     db.commit()
@@ -867,6 +907,7 @@ def admin_view(r: Registration) -> dict:
         "issued_at": as_utc(r.issued_at).isoformat() if r.issued_at else None,
         "check_purchase": r.check_purchase,
         "returned": r.returned,
+        "souvenir": r.souvenir,
     }
 
 
@@ -879,7 +920,8 @@ def registry_stats(db: Session) -> dict:
     counts = dict(db.execute(select(Registration.status, func.count()).group_by(Registration.status)).all())
     unchecked = db.scalar(select(func.count()).select_from(Registration).where(
         Registration.status == "issued", Registration.check_purchase.is_(False)))
-    return {"total": sum(counts.values()), **{s: counts.get(s, 0) for s in STATUSES}, "unchecked": unchecked}
+    return {"total": sum(counts.values()), **{s: counts.get(s, 0) for s in STATUSES}, "unchecked": unchecked,
+            "souvenirs": souvenirs_given(db), "souvenirs_total": SOUVENIRS}
 
 
 def registry_filter(status: str, q: str) -> list:
@@ -955,7 +997,7 @@ def patch_registration(reg_id: int, body: AdminPatch, user: StaffUser = Depends(
 
 
 def disqualify(r: Registration, reason: str) -> None:
-    # Машинка уже выдана: номер и чек остаются занятыми, снимается только заявка на розыгрыш.
+    # Чек уже подтверждён: он остаётся занятым (и сувенир, если был, засчитан), снимается только купон.
     r.status = "disqualified"
     r.status_reason = reason
     r.entry = None
@@ -966,7 +1008,7 @@ def admin_disqualify(reg_id: int, body: ReasonBody, user: StaffUser = Depends(re
                      db: Session = Depends(get_db)):
     r = get_reg(db, reg_id)
     if r.status != "issued":
-        raise HTTPException(400, "Снять с розыгрыша можно только заявку с выданной машинкой")
+        raise HTTPException(400, "Снять с розыгрыша можно только подтверждённый чек")
     disqualify(r, body.reason.strip() or "Снята маркетингом")
     audit(db, user, "disqualify", r.id, r.status_reason)
     db.commit()
@@ -1027,7 +1069,7 @@ def import_csv(kind: str, file: UploadFile = File(...), user: StaffUser = Depend
     return {"rows": len(rows), "matched": matched}
 
 
-STATUS_RU = {"waiting": "ждёт выдачи", "issued": "машинка выдана", "cancelled": "отменена",
+STATUS_RU = {"waiting": "ждёт кассы", "issued": "чек подтверждён", "cancelled": "отменена",
              "disqualified": "снята с розыгрыша"}
 
 
@@ -1036,14 +1078,14 @@ def export_csv(db: Session = Depends(get_db)):
     out = io.StringIO()
     w = csv.writer(out, delimiter=";")
     w.writerow(["Заявка", "Дата", "АЗС", "Телефон", "Телефон подтверждён", "ФН", "ФД", "ФМ", "Сумма",
-                "Статус", "Причина", "Выдано", "АЗС выдачи", "Покупка сверена", "Возврат",
-                "Номер участника"])
+                "Статус", "Причина", "Подтверждён", "АЗС подтверждения", "Сувенир", "Покупка сверена",
+                "Возврат", "Купон"])
     yes = lambda v: "да" if v else "нет"
     for r in db.scalars(select(Registration).options(selectinload(Registration.entry))
                         .order_by(Registration.created_at)):
         w.writerow([r.code, as_utc(r.created_at).isoformat(), r.station, r.phone, yes(r.phone_verified),
                     r.fn, r.fd, r.fm, r.receipt_sum, STATUS_RU[r.status], r.status_reason,
-                    as_utc(r.issued_at).isoformat() if r.issued_at else "", r.issued_station,
+                    as_utc(r.issued_at).isoformat() if r.issued_at else "", r.issued_station, yes(r.souvenir),
                     yes(r.check_purchase), yes(r.returned), r.entry.number if r.entry else ""])
     return Response("﻿" + out.getvalue(), media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": 'attachment; filename="registry.csv"'})
@@ -1068,7 +1110,7 @@ def audit_csv(db: Session = Depends(get_db)):
 # ---------- розыгрыш ----------
 
 def eligible(db: Session, only_checked: bool) -> list[Registration]:
-    """Участники: машинка выдана, возврата не было; при only_checked — покупка сверена с продажами."""
+    """Купоны: чек подтверждён, возврата не было; при only_checked — покупка сверена с продажами."""
     # join с Entry вместо проверки r.entry в Python: один запрос на всех участников.
     q = (select(Registration).join(Registration.entry).options(contains_eager(Registration.entry))
          .where(Registration.status == "issued", Registration.returned.is_(False)))
@@ -1092,6 +1134,7 @@ def draw_view(d: Draw) -> dict:
             "phone": w.registration.phone,
             "station": w.registration.issued_station,
             "picked_at": as_utc(w.picked_at).isoformat(),
+            "reserve": w.place > DRAW_PRIZES,
             "replaced_reason": w.replaced_reason,
         } for w in d.winners],
     }
@@ -1106,6 +1149,7 @@ def get_draw(only_checked: bool = True, db: Session = Depends(get_db)):
     d = current_draw(db)
     return {
         "prizes": DRAW_PRIZES,
+        "reserves": DRAW_RESERVES,
         "reset_allowed": DRAW_RESET_ALLOWED,
         "eligible": len(eligible(db, only_checked)),
         "eligible_all": len(eligible(db, False)),
@@ -1122,11 +1166,21 @@ def run_draw(body: DrawBody, user: StaffUser = Depends(require_admin), db: Sessi
     if current_draw(db):
         raise HTTPException(400, "Розыгрыш уже проведён. Победителя можно только переиграть.")
     pool = sorted(eligible(db, body.only_checked), key=lambda r: r.entry.id)
-    if len(pool) < DRAW_PRIZES:
-        raise HTTPException(400, f"Недостаточно участников: {len(pool)}, а призов {DRAW_PRIZES}")
+    phones = len({r.phone for r in pool})
+    if phones < DRAW_PRIZES:
+        raise HTTPException(400, f"Недостаточно участников: {phones}, а призов {DRAW_PRIZES}")
     snapshot = "\n".join(r.entry.number for r in pool)
     # Криптографически стойкий генератор: результат нельзя предсказать или подогнать.
-    picked = secrets.SystemRandom().sample(pool, DRAW_PRIZES)
+    # Купоны тянем по одному в случайном порядке; купон номера, который уже выиграл, пропускаем
+    # (один участник — один приз). Первые DRAW_PRIZES — победители, следующие — запасные.
+    picked, seen = [], set()
+    for r in secrets.SystemRandom().sample(pool, len(pool)):
+        if r.phone in seen:
+            continue
+        seen.add(r.phone)
+        picked.append(r)
+        if len(picked) == DRAW_PRIZES + DRAW_RESERVES:
+            break
     d = Draw(only_checked=body.only_checked, entries_count=len(pool),
              entries_hash=hashlib.sha256(snapshot.encode()).hexdigest(), entries_snapshot=snapshot)
     d.winners = [DrawWinner(place=i + 1, registration_id=r.id, entry_number=r.entry.number)
@@ -1148,9 +1202,9 @@ def redraw_winner(winner_id: int, body: ReasonBody, user: StaffUser = Depends(re
     if not reason:
         raise HTTPException(400, "Укажите причину, по которой переигрываете место")
     d = w.draw
-    taken = {x.registration_id for x in d.winners}
+    taken = {x.registration.phone for x in d.winners}  # один участник — один приз
     snapshot = set(d.entries_snapshot.split("\n"))
-    pool = [r for r in eligible(db, d.only_checked) if r.id not in taken and r.entry.number in snapshot]
+    pool = [r for r in eligible(db, d.only_checked) if r.phone not in taken and r.entry.number in snapshot]
     if not pool:
         raise HTTPException(400, "Не осталось участников для переигрывания")
     r = secrets.SystemRandom().choice(pool)

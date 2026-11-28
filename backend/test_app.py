@@ -1,4 +1,4 @@
-"""Сквозной сценарий: регистрация → блокировки по номеру и чеку → выдача на кассе → розыгрыш.
+"""Сквозной сценарий: регистрация → блокировка по чеку → подтверждение на кассе и сувенир → розыгрыш.
 
 Запуск: cd backend && ../.venv/bin/python test_app.py
 """
@@ -123,24 +123,27 @@ def test_flow():
     r = register("0555 556 677", station="3", **RECEIPT)
     assert r.status_code == 409 and "чек уже зарегистрирован" in r.json()["detail"]
 
-    # Тот же номер с другим чеком — блок
-    r = register("+996700111223", fn="1", fd="2", fm="3")
-    assert r.status_code == 409 and "ждёт выдачи" in r.json()["detail"]
+    # Тот же номер с другим чеком — можно: по условиям каждый чек даёт купон
+    second_receipt = register("+996700111223", fn="1", fd="2", fm="3")
+    assert second_receipt.status_code == 200 and second_receipt.json()["souvenir_due"]
 
     # Касса без пароля не открывается
     assert client.get("/api/cashier/queue").status_code == 401
 
-    # Кассир выдаёт машинку → номер участника
+    # Кассир подтверждает чек → купон и сувенир
     item = queue()[first.json()["code"]]
-    assert item["phone"] == "+996 700 *** 223" and not item["needs_fiscal"]
+    assert item["phone"] == "+996 700 *** 223" and not item["needs_fiscal"] and item["souvenir_due"]
     r = client.post(f"/api/cashier/registrations/{item['id']}/issue", headers=KASSA, json={"station": "7"})
     assert r.status_code == 200, r.text
     st = client.get(f"/api/registrations/status/{token}").json()
-    assert st["status"] == "issued" and st["entry"].startswith("KN-")
+    assert st["status"] == "issued" and st["entry"].startswith("KN-") and st["souvenir"]
 
-    # Повторная покупка тем же номером на другой АЗС — машинки нет
-    r = register("+996700111223", station="2", fn="9", fd="9", fm="9")
-    assert r.status_code == 409 and "уже получил игрушечный караван" in r.json()["detail"]
+    # Второй чек того же номера: купон есть, сувенира нет (один на номер)
+    item = queue()[second_receipt.json()["code"]]
+    assert item["souvenir_due"] is False
+    r = client.post(f"/api/cashier/registrations/{item['id']}/issue", headers=KASSA, json={"station": "2"})
+    assert r.status_code == 200 and r.json()["entry"] and not r.json()["souvenir"]
+    assert register("+996700111223", station="2", fn="9", fd="9", fm="9").json()["souvenir_due"] is False
 
     # QR не распознан: реквизиты вводит кассир, повторный чек при этом тоже ловится
     manual = register("772000112")
@@ -178,14 +181,16 @@ def test_flow():
     items = {i["code"]: i for i in client.get("/api/admin/registrations", headers=ADMIN).json()["items"]}
     returned = items[first.json()["code"]]
     assert returned["status"] == "disqualified" and returned["entry"] is None and returned["check_purchase"]
-    assert register("+996700111223", fn="8", fd="8", fm="8").status_code == 409
+    assert returned["souvenir"]  # сувенир уже выдан и засчитан, второй на номер не положен
+    assert register("+996700111223", fn="8", fd="8", fm="8").json()["souvenir_due"] is False
+    assert register("+996 700 111 223", **RECEIPT).status_code == 409  # чек с возвратом занят
 
     csv_text = client.get("/api/admin/export.csv", headers=ADMIN).text
-    assert "снята с розыгрыша" in csv_text and "Номер участника" in csv_text
+    assert "снята с розыгрыша" in csv_text and "Купон" in csv_text and "Сувенир" in csv_text
 
 
 def test_draw():
-    """8 разных победителей из выданных, повторный розыгрыш запрещён, переигрывание даёт нового победителя."""
+    """8 победителей и 3 запасных, повторный розыгрыш запрещён, переигрывание даёт нового победителя."""
     import hashlib
     fresh_db()
     for i in range(12):
@@ -200,7 +205,8 @@ def test_draw():
 
     d = client.post("/api/admin/draw", headers=ADMIN, json={"only_checked": False}).json()
     entries = {w["entry"] for w in d["winners"]}
-    assert len(d["winners"]) == 8 and len(entries) == 8
+    assert len(d["winners"]) == 11 and len(entries) == 11
+    assert [w["reserve"] for w in d["winners"]] == [False] * 8 + [True] * 3
     assert client.post("/api/admin/draw", headers=ADMIN, json={"only_checked": False}).status_code == 400
 
     snapshot = client.get("/api/admin/draw/entries.txt", headers=ADMIN).text
@@ -322,7 +328,7 @@ def test_admin_registrations_paginated():
 
 
 def test_expired_released_in_bulk():
-    """Просроченные заявки освобождаются одним запросом, номер и чек снова свободны."""
+    """Просроченные заявки освобождаются одним запросом, чек снова свободен."""
     fresh_db()
     [register(f"+996555000{i}50", fn="91", fd=str(i), fm="1").json()["code"] for i in range(3)]
     with backend.Session(backend.engine) as db:
@@ -331,7 +337,7 @@ def test_expired_released_in_bulk():
         db.commit()
         assert backend.release_all_expired(db) == 3
         db.commit()
-    assert register("+996555000050", fn="91", fd="0", fm="1").status_code == 200  # номер и чек освободились
+    assert register("+996555000050", fn="91", fd="0", fm="1").status_code == 200  # чек освободился
 
 
 def with_limits(**limits):
@@ -356,7 +362,7 @@ def test_registration_rate_limits():
     """Не больше 5 попыток на номер в час и 60 регистраций с одного IP за 10 минут (B4)."""
     fresh_db()
     codes = [register("+996 555 000 777", fn="51", fd=str(i), fm="1").status_code for i in range(6)]
-    assert codes[0] == 200 and codes[1:5] == [409] * 4 and codes[5] == 429, codes  # по телефону
+    assert codes[:5] == [200] * 5 and codes[5] == 429, codes  # по телефону: 5 чеков в час
     fresh_db()
     codes = [register(f"+996 555 1{i:05d}", fn="52", fd=str(i), fm="1").status_code for i in range(61)]
     assert codes[:60] == [200] * 60 and codes[60] == 429, codes  # по IP: щадящий лимит (CGNAT)
@@ -591,6 +597,47 @@ def test_ensure_user_from_env():
             backend.StaffUser.login == "azs1")) == 1
 
 
+def issue(code: str, **body):
+    return client.post(f"/api/cashier/registrations/{queue_by_code(code)['id']}/issue", headers=KASSA, json=body)
+
+
+def test_souvenir_stock_and_cashier_opt_out():
+    """Сувениров ограниченное число: после исчерпания чеки подтверждаются без сувенира, купоны выдаются.
+    Кассир может подтвердить без сувенира, если на его АЗС их нет: номер тогда получит сувенир позже."""
+    fresh_db()
+    saved = backend.SOUVENIRS
+    backend.SOUVENIRS = 2
+    try:
+        a = register("+996555100001", fn="71", fd="1", fm="1").json()["code"]
+        b = register("+996555100002", fn="71", fd="2", fm="1").json()["code"]
+        assert issue(a, souvenir=False).json()["souvenir"] is False  # на АЗС кончились
+        assert issue(b).json()["souvenir"] is True
+        a2 = register("+996555100001", fn="71", fd="3", fm="1").json()
+        assert a2["souvenir_due"]  # первый номер свой сувенир ещё не получил
+        assert issue(a2["code"]).json()["souvenir"] is True
+        assert client.get("/api/config").json()["souvenirs_left"] == 0
+        c = register("+996555100003", fn="71", fd="4", fm="1").json()
+        assert c["souvenir_due"] is False
+        r = issue(c["code"])
+        assert r.status_code == 200 and r.json()["entry"] and r.json()["souvenir"] is False
+        stats = client.get("/api/admin/stats", headers=ADMIN).json()
+        assert stats["souvenirs"] == 2 and stats["souvenirs_total"] == 2 and stats["issued"] == 4
+    finally:
+        backend.SOUVENIRS = saved
+
+
+def test_draw_one_prize_per_phone():
+    """У номера много купонов, но выиграть он может один раз: среди победителей и запасных номера разные."""
+    fresh_db()
+    for i in range(12):
+        phone = "+996555200001" if i < 5 else f"+9965552000{i:02d}"
+        issue(register(phone, fn="81", fd=str(i), fm="1").json()["code"])
+    d = client.post("/api/admin/draw", headers=ADMIN, json={"only_checked": False}).json()
+    phones = [w["phone"] for w in d["winners"]]
+    assert len(phones) == len(set(phones)) == 8  # 8 разных номеров: на запасных номеров не хватило
+    assert d["entries_count"] == 12
+
+
 if __name__ == "__main__":
     test_flow()
     test_draw()
@@ -619,4 +666,6 @@ if __name__ == "__main__":
     test_photo_exif_orientation_kept()
     test_adopt_legacy_db()
     test_ensure_user_from_env()
+    test_souvenir_stock_and_cashier_opt_out()
+    test_draw_one_prize_per_phone()
     print("OK")

@@ -66,6 +66,7 @@ async function load() {
   state = await adminApi('/api/admin/draw?only_checked=' + $('onlyChecked').checked);
   $('prizes').textContent = state.prizes;
   $('eligible').textContent = state.eligible;
+  $('reserves').textContent = state.reserves;
   show($('reset'), state.reset_allowed);
   if (state.draw) renderDraw(state.draw, false);
   else {
@@ -113,7 +114,7 @@ function renderDraw(d, animate, entries = []) {
   show($('setup'), false);
   const winners = active(d);
   $('slots').innerHTML = winners.map(w => `
-    <li class="slot"><span class="slot-place">${w.place}</span>
+    <li class="slot${w.reserve ? ' reserve' : ''}"><span class="slot-place">${w.reserve ? 'З' + (w.place - state.prizes) : w.place}</span>
       <span class="plate md"><span class="num" data-slot="${w.place}">${animate ? '—' : esc(w.entry)}</span></span></li>`).join('');
 
   if (animate && !reduceMotion && entries.length) {
@@ -139,10 +140,10 @@ function renderDraw(d, animate, entries = []) {
 
   $('winners').innerHTML = `
     <table class="winners">
-      <thead><tr><th>Место</th><th>Номер участника</th><th>Телефон</th><th>Заявка</th><th>Выдано на АЗС</th><th></th></tr></thead>
+      <thead><tr><th>Место</th><th>Купон</th><th>Телефон</th><th>Заявка</th><th>АЗС</th><th></th></tr></thead>
       <tbody>${d.winners.slice().sort((a, b) => a.place - b.place || a.id - b.id).map(w => `
         <tr class="${w.replaced_reason ? 'replaced' : ''}">
-          <td>${w.place}</td><td><b>${esc(w.entry)}</b></td><td>${esc(w.phone)}</td><td>${esc(w.code)}</td>
+          <td>${w.reserve ? `запасной ${w.place - state.prizes}` : w.place}</td><td><b>${esc(w.entry)}</b></td><td>${esc(w.phone)}</td><td>${esc(w.code)}</td>
           <td>${w.station ? '№' + esc(w.station) : ''}</td>
           <td>${w.replaced_reason ? `<span class="hint">переигран: ${esc(w.replaced_reason)}</span>`
             : `<button class="btn small secondary" data-redraw="${w.id}" type="button">Переиграть</button>`}</td>
@@ -152,8 +153,8 @@ function renderDraw(d, animate, entries = []) {
 
   $('auditData').innerHTML = `
     <div><span class="hint">Проведён</span><b>${new Date(d.created_at).toLocaleString('ru-RU')}</b></div>
-    <div><span class="hint">Участников</span><b>${d.entries_count}</b></div>
-    <div><span class="hint">Условие</span><b>${d.only_checked ? 'покупка сверена' : 'все с выданной машинкой'}</b></div>
+    <div><span class="hint">Купонов</span><b>${d.entries_count}</b></div>
+    <div><span class="hint">Условие</span><b>${d.only_checked ? 'покупка сверена' : 'все подтверждённые чеки'}</b></div>
     <div class="hash"><span class="hint">SHA-256 списка участников</span><code>${esc(d.entries_hash)}</code></div>`;
   show($('audit'));
 }

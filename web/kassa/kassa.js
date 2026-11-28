@@ -1,4 +1,4 @@
-// Служебный интерфейс кассира: одобренные системой заявки, выдача машинки, отмена.
+// Служебный интерфейс кассира: заявки клиентов, подтверждение чека (с сувениром или без), отмена.
 
 const $ = id => document.getElementById(id);
 const TOKEN_KEY = 'karavan_cashier_token';
@@ -105,6 +105,7 @@ async function load() {
   try {
     data = await kassaApi('/api/cashier/queue' + (q.length >= 3 ? '?q=' + encodeURIComponent(q) : ''));
     render(q.length >= 3);
+    renderSouvenirs(data.souvenirs_left);
   } catch (err) {
     $('queue').innerHTML = `<div class="card error">${esc(err.message)}</div>`;
   }
@@ -116,14 +117,24 @@ function render(searching = false) {
   $('queue').innerHTML = list.length ? list.map(card).join('') :
     `<div class="card empty"><img src="shared/img/caravan-truck.svg" alt="">${searching
       ? 'Заявки с таким кодом нет. Проверьте код на экране клиента или попросите обновить страницу.'
-      : 'Сейчас никто не ждёт машинку. Новые заявки появятся здесь сами.'}</div>`;
+      : 'Сейчас нет заявок на подтверждение. Новые появятся здесь сами.'}</div>`;
   list.forEach(r => loadThumb(r.id));
 
   $('recent').innerHTML = data.recent.length ? data.recent.map(r => `
     <div class="done-line">${plate(r.code, 'sm')}<span>${esc(r.phone)}</span>
-      <span class="tag issued">выдано${r.issued_station ? ' на АЗС №' + esc(r.issued_station) : ''}</span>
+      <span class="tag issued">подтверждён${r.issued_station ? ' на АЗС №' + esc(r.issued_station) : ''}</span>
+      ${r.souvenir ? '<span class="tag issued">сувенир</span>' : ''}
       <span class="tag pink">${esc(r.entry || '')}</span></div>`).join('')
-    : '<p class="hint" style="margin:0">Пока ничего не выдано.</p>';
+    : '<p class="hint" style="margin:0">Пока ничего не подтверждено.</p>';
+}
+
+function renderSouvenirs(left) {
+  const el = $('souvenirsLeft');
+  if (typeof left !== 'number') { show(el, false); return; }
+  el.textContent = left > 0 ? `Сувениров осталось по всей акции: ${left}`
+    : 'Сувениры закончились. Чеки подтверждаются без сувенира, клиенты по-прежнему участвуют в розыгрыше.';
+  el.classList.toggle('out', left === 0);
+  show(el);
 }
 
 // Сверху то, что кассир сверяет с экраном клиента: код, телефон, время. Под ними кнопки.
@@ -143,8 +154,14 @@ function card(r) {
           <div><label>ФД</label><input data-f="fd" inputmode="numeric"></div>
           <div><label>ФМ</label><input data-f="fm" inputmode="numeric"></div>
         </div>` : ''}
+      <p class="souvenir-note ${r.souvenir_due ? 'give' : 'none'}">${r.souvenir_due
+        ? 'Выдать сувенир: этот номер его ещё не получал'
+        : 'Без сувенира: на этот номер он уже выдан или запас закончился'}</p>
       <div class="actions">
-        <button class="btn small" type="button" data-act="issue">Машинка выдана</button>
+        ${r.souvenir_due
+          ? `<button class="btn small" type="button" data-act="issue">Подтвердить и выдать сувенир</button>
+             <button class="btn small secondary" type="button" data-act="issue-nosouvenir">Подтвердить без сувенира</button>`
+          : '<button class="btn small" type="button" data-act="issue">Подтвердить чек</button>'}
         <button class="btn small secondary" type="button" data-act="cancel">Отменить заявку</button>
       </div>
       <div class="reasons hidden" data-reasons>
@@ -186,7 +203,7 @@ async function loadThumb(id) {
 
 async function cancel(cardEl, reason) {
   await kassaApi(`/api/cashier/registrations/${cardEl.dataset.id}/cancel`, { method: 'POST', json: { reason } });
-  toast('Заявка отменена, машинку не выдавайте');
+  toast('Заявка отменена, сувенир не выдавайте');
 }
 
 $('queue').addEventListener('click', async e => {
@@ -214,12 +231,13 @@ $('queue').addEventListener('click', async e => {
 
   try {
     el.disabled = true;
-    if (action === 'issue') {
-      // АЗС выдачи сервер берёт из учётки кассира.
-      const body = {};
+    if (action === 'issue' || action === 'issue-nosouvenir') {
+      // АЗС сервер берёт из учётки кассира или из QR клиента; положен ли сувенир, решает сервер.
+      const body = { souvenir: action === 'issue' };
       cardEl.querySelectorAll('[data-f]').forEach(i => { body[i.dataset.f] = i.value; });
       const r = await kassaApi(`/api/cashier/registrations/${cardEl.dataset.id}/issue`, { method: 'POST', json: body });
-      toast(`Выдано. Клиент участвует в розыгрыше, номер ${r.entry}`);
+      toast(r.souvenir ? `Чек подтверждён. Выдайте сувенир. Купон ${r.entry}`
+        : `Чек подтверждён без сувенира. Купон ${r.entry}`);
     } else if (action === 'reason') {
       await cancel(cardEl, el.dataset.reason);
     } else if (action === 'cancel-other') {
